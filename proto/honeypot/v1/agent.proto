@@ -1,0 +1,295 @@
+syntax = "proto3";
+
+package honeypot.v1;
+
+option go_package = "github.com/harris/honeypot/proto/gen/honeypot/v1;honeypotv1";
+
+import "google/protobuf/timestamp.proto";
+
+service SensorControlService {
+  rpc EnrollNode(EnrollNodeRequest) returns (EnrollNodeResponse);
+  rpc RenewNodeCert(RenewNodeCertRequest) returns (RenewNodeCertResponse);
+  rpc StreamControl(stream AgentFrame) returns (stream HiveCommand);
+  rpc PushEventsBatch(PushEventsBatchRequest) returns (PushEventsBatchResponse);
+  rpc RelayLLMStream(RelayLLMRequest) returns (stream RelayLLMChunk);
+  rpc HasArtifactSHA256(HasArtifactRequest) returns (HasArtifactResponse);
+  rpc UploadArtifact(stream ArtifactChunk) returns (UploadArtifactResponse);
+}
+
+message EnrollNodeRequest {
+  string join_token = 1;
+  bytes csr_pem = 2;
+  string public_ipv4 = 3;
+  string public_ipv6 = 4;
+  string agent_version = 5;
+  string hostname = 6;
+}
+
+message EnrollNodeResponse {
+  string node_id = 1;
+  string node_role = 2; // sensor | nginx_guard
+  bytes client_cert_pem = 3;
+  bytes root_ca_pem = 4;
+  bytes feed_verify_ed25519_pubkey = 5;
+  repeated string allowlist_cidrs = 6;
+  repeated CanaryKeySeed canary_keys = 7;
+  google.protobuf.Timestamp cert_expires_at = 8;
+}
+
+message RenewNodeCertRequest {
+  bytes csr_pem = 1;
+}
+
+message RenewNodeCertResponse {
+  bytes client_cert_pem = 1;
+  google.protobuf.Timestamp cert_expires_at = 2;
+}
+
+message CanaryKeySeed {
+  string canary_key_id = 1;
+  string key_plaintext = 2;
+  string key_hash_hex = 3;
+  string provider_style = 4; // openai | anthropic
+  string placement_source = 5;
+  string placement_path = 6;
+  bool paid_upstream_eligible = 7;
+}
+
+message AgentFrame {
+  string node_id = 1;
+  oneof payload {
+    NodeHeartbeat heartbeat = 2;
+    CommandAck command_ack = 3;
+    ContainerLogChunk container_log = 4;
+  }
+}
+
+message NodeHeartbeat {
+  double cpu_pct = 1;
+  uint64 mem_used_mb = 2;
+  uint64 mem_total_mb = 3;
+  uint64 disk_free_mb = 4;
+  string agent_version = 5;
+  google.protobuf.Timestamp cert_expires_at = 6;
+  repeated TrapStatus traps = 7;
+  uint64 spool_queued_items = 8;
+  uint64 spool_bytes = 9;
+  int64 clock_skew_check_unix = 10;
+}
+
+message TrapStatus {
+  string deployment_id = 1;
+  string trap_kind = 2;
+  string container_name = 3;
+  uint32 listen_port = 4;
+  string protocol = 5;
+  string actual_state = 6;
+  string error_message = 7;
+  double cpu_pct = 8;
+  uint64 mem_used_mb = 9;
+}
+
+message CommandAck {
+  string command_id = 1;
+  bool ok = 2;
+  string message = 3;
+}
+
+message ContainerLogChunk {
+  string command_id = 1;
+  string deployment_id = 2;
+  string line = 3;
+  google.protobuf.Timestamp observed_at = 4;
+}
+
+message HiveCommand {
+  string command_id = 1;
+  oneof payload {
+    DeployTrapCommand deploy_trap = 2;
+    StopTrapCommand stop_trap = 3;
+    RestartTrapCommand restart_trap = 4;
+    FetchLogsCommand fetch_logs = 5;
+    ToggleCvePackCommand toggle_cve_pack = 6;
+    RotateCertCommand rotate_cert = 7;
+    SyncCanaryKeysCommand sync_canary_keys = 8;
+    SyncAllowlistCommand sync_allowlist = 9;
+  }
+}
+
+message DeployTrapCommand {
+  string deployment_id = 1;
+  string trap_kind = 2; // cowrie | heralding | webcve | llmproxy | infratrap
+  string container_name = 3;
+  string image = 4;
+  uint32 listen_port = 5;
+  string protocol = 6;
+  string config_json = 7;
+}
+
+message StopTrapCommand {
+  string deployment_id = 1;
+  string container_name = 2;
+}
+
+message RestartTrapCommand {
+  string deployment_id = 1;
+  string container_name = 2;
+}
+
+message FetchLogsCommand {
+  string deployment_id = 1;
+  string container_name = 2;
+  uint32 tail_lines = 3;
+}
+
+message ToggleCvePackCommand {
+  string cve_id = 1;
+  bool enabled = 2;
+}
+
+message RotateCertCommand {
+  string reason = 1;
+}
+
+message SyncCanaryKeysCommand {
+  repeated CanaryKeySeed keys = 1;
+}
+
+message SyncAllowlistCommand {
+  repeated string cidrs = 1;
+}
+
+message TelemetryEvent {
+  string event_uuid = 1;
+  string node_id = 2;
+  string source_ip = 3;
+  uint32 source_port = 4;
+  uint32 dest_port = 5;
+  string protocol = 6;
+  string trap_kind = 7;
+  string persona = 8;
+  string cve_id = 9;
+  bool is_kev = 10;
+  string ja4 = 11;
+  string ja4h = 12;
+  string hassh = 13;
+  string http_method = 14;
+  string http_host = 15;
+  string http_path = 16;
+  string raw_payload = 17; // capped inline at 32 KiB
+  string artifact_sha256 = 18;
+  string response_summary = 19;
+  string extracted_iocs_json = 20;
+  string canary_key_id = 21;
+  int32 severity_score = 22;
+  google.protobuf.Timestamp observed_at = 23;
+}
+
+message SshSessionReplay {
+  string replay_uuid = 1;
+  string event_uuid = 2;
+  string node_id = 3;
+  string source_ip = 4;
+  string hassh = 5;
+  string username = 6;
+  bool auth_succeeded = 7;
+  repeated string commands = 8;
+  string asciicast_v2 = 9;
+  int64 duration_ms = 10;
+  google.protobuf.Timestamp started_at = 11;
+}
+
+message LlmConversation {
+  string conversation_uuid = 1;
+  string event_uuid = 2;
+  string node_id = 3;
+  string canary_key_id = 4;
+  string source_ip = 5;
+  string api_dialect = 6;
+  string requested_model = 7;
+  string emulated_persona = 8;
+  repeated string probe_flags = 9;
+  string messages_json = 10;
+  string tools_json = 11;
+  string response_text = 12;
+  string degraded_mode = 13; // none | cached | rate_limit_429 | slow_tarpit
+  int32 upstream_tokens_in = 14;
+  int32 upstream_tokens_out = 15;
+  double estimated_cost_usd = 16;
+  google.protobuf.Timestamp created_at = 17;
+}
+
+message PushEventsBatchRequest {
+  string node_id = 1;
+  repeated TelemetryEvent events = 2;
+  repeated SshSessionReplay ssh_replays = 3;
+  repeated LlmConversation llm_conversations = 4;
+}
+
+message PushEventsBatchResponse {
+  repeated string acked_event_uuids = 1;
+  repeated string rejected_deadletter_uuids = 2;
+}
+
+message RelayLLMRequest {
+  string node_id = 1;
+  string event_uuid = 2;
+  string source_ip = 3;
+  string api_dialect = 4; // openai | anthropic | ollama
+  string requested_model = 5;
+  string canary_key_hash_hex = 6;
+  bool stream = 7;
+  int32 requested_max_tokens = 8;
+  repeated string probe_flags = 9;
+  string messages_json = 10;
+  string tools_json = 11;
+}
+
+message RelayLLMChunk {
+  enum Directive {
+    DIRECTIVE_UNSPECIFIED = 0;
+    DIRECTIVE_STREAM = 1;
+    DIRECTIVE_CACHED = 2;
+    DIRECTIVE_SLOW_TARPIT = 3;
+    DIRECTIVE_RATE_LIMIT_429 = 4;
+  }
+  Directive directive = 1;
+  string emulated_persona = 2;
+  string delta_text = 3;
+  bool done = 4;
+  string finish_reason = 5;
+  int32 tokens_in = 6;
+  int32 tokens_out = 7;
+  string canary_key_id = 8;
+}
+
+message HasArtifactRequest {
+  string sha256 = 1;
+}
+
+message HasArtifactResponse {
+  bool exists = 1;
+}
+
+message ArtifactMetadata {
+  string sha256 = 1;
+  string md5 = 2;
+  int64 file_size = 3;
+  string mime_type = 4;
+  string source_url = 5;
+  string node_id = 6;
+  string event_uuid = 7;
+}
+
+message ArtifactChunk {
+  oneof part {
+    ArtifactMetadata metadata = 1;
+    bytes data = 2;
+  }
+}
+
+message UploadArtifactResponse {
+  string sha256 = 1;
+  bool deduplicated = 2;
+  repeated string yara_matches = 3;
+}

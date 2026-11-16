@@ -1,0 +1,9 @@
+id: CVE-2022-22947
+persona: java-spring
+is_kev: true
+severity: 95
+title: Spring Cloud Gateway SpEL Injection & Actuator Env Leak
+methods: ["GET", "POST"]
+raw_uri_regex: '(?i)^/actuator/(gateway/routes|gateway/refresh|env|heapdump)'
+handler: spring_actuator
+canary_lure: true

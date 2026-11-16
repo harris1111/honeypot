@@ -1,0 +1,80 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-honeypot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_pg_password}
+      POSTGRES_DB: ${POSTGRES_DB:-honeypot}
+    ports:
+      - "127.0.0.1:${HIVE_PG_PORT:-15432}:5432"
+    volumes:
+      - hive_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-honeypot} -d ${POSTGRES_DB:-honeypot}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${HIVE_REDIS_PORT:-16379}:6379"
+    volumes:
+      - hive_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  hive:
+    build:
+      context: ../..
+      dockerfile: deployments/hive/Dockerfile.hive
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      HIVE_POSTGRES_DSN: postgres://${POSTGRES_USER:-honeypot}:${POSTGRES_PASSWORD:-change_me_pg_password}@127.0.0.1:${HIVE_PG_PORT:-15432}/${POSTGRES_DB:-honeypot}?sslmode=disable
+      HIVE_REDIS_ADDR: 127.0.0.1:${HIVE_REDIS_PORT:-16379}
+      HIVE_PKI_DIR: /var/lib/honeypot-hive/pki
+      HIVE_VAULT_DIR: /var/lib/honeypot-hive/quarantine
+      HIVE_INGRESS_ADDR: "${HIVE_INGRESS_ADDR:-:9443}"
+      HIVE_INGRESS_SANS: "${HIVE_INGRESS_SANS:-127.0.0.1,localhost,hive.internal,enroll.hive.internal}"
+      HIVE_PUBLIC_INGRESS: "${HIVE_PUBLIC_INGRESS:-enroll.hive.internal:9443}"
+      HIVE_ADMIN_BIND_ADDR: "${HIVE_ADMIN_BIND_ADDR:-127.0.0.1:8443}"
+      HIVE_ADMIN_IFACE: "${HIVE_ADMIN_IFACE:-}"
+      HIVE_CANARY_MASTER_KEY: "${HIVE_CANARY_MASTER_KEY:-}"
+      HIVE_LLM_MAX_DAILY_USD: "${HIVE_LLM_MAX_DAILY_USD:-0}"
+      HIVE_UPSTREAM_LLM_URL: "${HIVE_UPSTREAM_LLM_URL:-}"
+      HIVE_UPSTREAM_LLM_KEY: "${HIVE_UPSTREAM_LLM_KEY:-}"
+      HIVE_UPSTREAM_LLM_MODEL: "${HIVE_UPSTREAM_LLM_MODEL:-deepseek-chat}"
+      CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"
+      CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID:-}"
+      CLOUDFLARE_LIST_ID: "${CLOUDFLARE_LIST_ID:-}"
+      CLOUDFLARE_ENTERPRISE_JA4_ENABLED: "${CLOUDFLARE_ENTERPRISE_JA4_ENABLED:-false}"
+      GREYNOISE_API_KEY: "${GREYNOISE_API_KEY:-}"
+      ABUSEIPDB_API_KEY: "${ABUSEIPDB_API_KEY:-}"
+      VIRUSTOTAL_API_KEY: "${VIRUSTOTAL_API_KEY:-}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
+      DISCORD_WEBHOOK_URL: "${DISCORD_WEBHOOK_URL:-}"
+      ALERT_WEBHOOK_URL: "${ALERT_WEBHOOK_URL:-}"
+    volumes:
+      - hive_pki_data:/var/lib/honeypot-hive/pki
+      - hive_quarantine_data:/var/lib/honeypot-hive/quarantine
+
+  # Note: postgres & redis expose only 127.0.0.1 loopback ports for host-networked Hive container
+
+volumes:
+  hive_pg_data:
+  hive_redis_data:
+  hive_pki_data:
+  hive_quarantine_data:

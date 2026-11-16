@@ -1,0 +1,9 @@
+id: CVE-2024-4577
+persona: php-legacy-cms
+is_kev: true
+severity: 95
+title: PHP-CGI Windows Best-Fit %AD Argument Injection
+methods: ["POST", "GET"]
+raw_uri_regex: '(?i)(?:\.php|php-cgi(?:\.exe)?).*%ad.*(?:auto_prepend_file|allow_url_include|cgi\.force_redirect|\-d)'
+handler: php_cgi_arg_inject
+canary_lure: true

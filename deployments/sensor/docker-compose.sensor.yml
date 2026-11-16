@@ -1,0 +1,51 @@
+services:
+  docker-guard-proxy:
+    image: honeypot-docker-guard-proxy:latest
+    build:
+      context: ../..
+      dockerfile: deployments/sensor/Dockerfile.guard
+    container_name: honeypot-docker-guard-proxy
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    environment:
+      DOCKER_SOCK_PATH: /var/run/docker.sock
+      DOCKER_GUARD_LISTEN: 127.0.0.1:23750
+      DOCKER_ALLOWED_BIND_ROOT: /var/lib/honeypot-sensor/traps
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    network_mode: host
+
+  sensor-agent:
+    image: honeypot-sensor:latest
+    container_name: honeypot-sensor-agent
+    restart: unless-stopped
+    depends_on:
+      - docker-guard-proxy
+    network_mode: host
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      SENSOR_STATE_DIR: /var/lib/honeypot-sensor
+      SENSOR_DOCKER_PROXY: http://127.0.0.1:23750
+      SENSOR_HIVE_ADDR: ${SENSOR_HIVE_ADDR:-hive.internal:9443}
+      SENSOR_HIVE_SNI: ${SENSOR_HIVE_SNI:-hive.internal}
+      SENSOR_AI_GATEWAY_URL: ${SENSOR_AI_GATEWAY_URL:-https://ai-gw.example}
+    volumes:
+      - /var/lib/honeypot-sensor:/var/lib/honeypot-sensor:rw
+
+networks:
+  trap_isolated_net:
+    name: trap_isolated_net
+    driver: bridge
+    internal: false
+    driver_opts:
+      com.docker.network.bridge.name: br-trap
+      com.docker.network.bridge.enable_icc: "false"

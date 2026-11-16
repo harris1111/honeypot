@@ -1,0 +1,10 @@
+id: CVE-2026-111497
+persona: nextjs-modern
+is_kev: true
+severity: 96
+title: Node.js Brotli Decoder Metablock OOB RCE (Node2Shell)
+methods: ["POST", "PUT"]
+header_regex:
+  content-encoding: '(?i)\bbr\b'
+handler: node2shell_brotli
+quarantine_body: true

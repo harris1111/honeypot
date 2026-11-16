@@ -1,0 +1,8 @@
+id: CVE-2021-44228
+persona: all
+is_kev: true
+severity: 98
+title: Log4Shell JNDI Header/URI/Body De-obfuscator
+methods: ["GET", "POST", "PUT", "HEAD", "OPTIONS"]
+handler: log4shell_jndi
+canary_lure: false

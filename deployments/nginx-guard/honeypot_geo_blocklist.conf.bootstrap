@@ -1,0 +1,13 @@
+# Bootstrap config installed alongside nginx-guard before first signed feed arrives
+geo $is_trusted_cf {
+    default 0;
+}
+
+map "$is_trusted_cf:$http_cf_connecting_ip" $honeypot_client_ip {
+    default $remote_addr;
+    ~^1:(.+)$ $1;
+}
+
+geo $honeypot_client_ip $honeypot_blocked {
+    default 0;
+}

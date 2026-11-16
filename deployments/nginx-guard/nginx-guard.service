@@ -1,0 +1,16 @@
+[Unit]
+Description=Honeypot Active Guard Signed Nginx Feed Daemon
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/nginx-guard --state-dir /var/lib/honeypot-nginx-guard --nginx-conf /etc/nginx/conf.d/honeypot_geo_blocklist.conf
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/etc/nginx/conf.d /var/lib/honeypot-nginx-guard /var/run
+
+[Install]
+WantedBy=multi-user.target

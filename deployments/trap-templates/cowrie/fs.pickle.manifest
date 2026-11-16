@@ -1,0 +1,16 @@
+# Canonical baseline Cowrie fs.pickle manifest
+# Root tuple layout: [name, type(0=link,1=dir,2=file), uid, gid, size, mode, ctime, contents, target, realfile]
+/             dir   0     0     040755
+/etc/passwd   file  0     0     0100644
+/etc/group    file  0     0     0100644
+/etc/issue    file  0     0     0100644
+/etc/hosts    file  0     0     0100644
+/var/log/auth.log file 0  0     0100644
+/usr/bin/curl file  0     0     0100644
+/usr/bin/wget file  0     0     0100644
+/bin/bash     file  0     0     0100644
+/bin/sh       file  0     0     0100644
+/root/.bashrc file  0     0     0100644
+/root/.bash_history file 0 0    0100600  (canary_seeded: openai)
+/var/www/app/.env   file 33 33  0100640  (canary_seeded: openai, anthropic)
+/home/deploy/.aws/credentials file 1000 1000 0100600 (canary_seeded: openai)

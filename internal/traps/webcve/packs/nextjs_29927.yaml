@@ -1,0 +1,11 @@
+id: CVE-2025-29927
+persona: nextjs-modern
+is_kev: false
+severity: 95
+title: Next.js Middleware Authorization Bypass
+methods: ["GET", "POST", "HEAD"]
+raw_uri_regex: '(?i)^/(admin|dashboard|api/internal|api/v1/keys)(/|$|\?)'
+header_regex:
+  x-middleware-subrequest: '(?i)(^|:)(src/)?(middleware|pages/_middleware)(:|$)'
+handler: nextjs_middleware_bypass
+canary_lure: true

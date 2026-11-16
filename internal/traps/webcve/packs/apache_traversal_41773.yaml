@@ -1,0 +1,10 @@
+id: CVE-2021-41773
+aliases: ["CVE-2021-42013"]
+persona: php-legacy-cms
+is_kev: true
+severity: 95
+title: Apache HTTP Server Path Traversal & CGI RCE
+methods: ["GET", "POST"]
+raw_uri_regex: '(?i)(?:cgi-bin|icons).*(?:\.%2e|%2e\.|\.%%32%65)'
+handler: apache_cgi_traversal
+canary_lure: false

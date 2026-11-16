@@ -1,0 +1,10 @@
+id: CVE-2025-31125
+aliases: ["CVE-2025-30208"]
+persona: nextjs-modern
+is_kev: true
+severity: 92
+title: Vite Dev Server Arbitrary File Read (@fs Bypass)
+methods: ["GET"]
+raw_uri_regex: '(?i)/@(fs|id)/.*(\?raw|\?import|\?inline|\?url|\.\.)'
+handler: vite_fs_read
+canary_lure: true

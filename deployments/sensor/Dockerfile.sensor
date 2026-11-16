@@ -1,0 +1,16 @@
+FROM golang:1.27-alpine AS builder
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . ./
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/sensor-agent ./cmd/sensor-agent
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates libcap && \
+    addgroup -S -g 1000 sensor && adduser -S -u 1000 -G sensor sensor && \
+    mkdir -p /var/lib/honeypot-sensor/traps /var/lib/honeypot-sensor/certmagic && \
+    chown -R 1000:1000 /var/lib/honeypot-sensor
+COPY --from=builder /out/sensor-agent /usr/local/bin/sensor-agent
+RUN setcap 'cap_net_bind_service=+ep' /usr/local/bin/sensor-agent
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/sensor-agent"]

@@ -1,0 +1,10 @@
+id: CVE-2026-119977
+aliases: ["CVE-2020-25213"]
+persona: php-legacy-cms
+is_kev: true
+severity: 94
+title: WordPress Upgrade Staging TOCTOU, WP File Manager RCE & XML-RPC Brute/SSRF
+methods: ["GET", "POST"]
+raw_uri_regex: '(?i)^/(?:wp-content/upgrade-temp-backup/|wp-content/plugins/wp-file-manager/lib/php/connector\.minimal\.php|xmlrpc\.php)'
+handler: wordpress_multi
+quarantine_body: true

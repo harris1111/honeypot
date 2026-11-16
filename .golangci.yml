@@ -1,0 +1,19 @@
+version: "2"
+linters:
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gocritic
+    - bodyclose
+    - gosec
+  settings:
+    gosec:
+      excludes:
+        - G104
+formatters:
+  enable:
+    - gofmt
+    - goimports

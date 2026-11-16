@@ -1,0 +1,44 @@
+# Stage 1: Build React + Tailwind + shadcn/ui Admin Console bundle
+FROM node:22-alpine AS web-builder
+RUN corepack enable
+WORKDIR /web
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY web/ ./
+RUN pnpm build
+
+# Stage 2: Build Rust libyara_x_capi shared/static library for full YARA-X engine
+FROM rust:1-bookworm AS yarax-builder
+RUN apt-get update && apt-get install -y --no-install-recommends git pkg-config && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch v1.23.0 https://github.com/VirusTotal/yara-x.git /yara-x
+WORKDIR /yara-x
+RUN cargo build --release -p yara-x-capi && \
+    mkdir -p /opt/yarax/lib/pkgconfig /opt/yarax/include && \
+    cp target/release/libyara_x_capi.so target/release/libyara_x_capi.a /opt/yarax/lib/ && \
+    cp capi/include/yara_x.h /opt/yarax/include/
+
+# Stage 3: Compile Central Hive with -tags yarax + embedded web/dist
+FROM golang:1.27-bookworm AS go-builder
+RUN apt-get update && apt-get install -y --no-install-recommends pkg-config gcc libc6-dev && rm -rf /var/lib/apt/lists/*
+COPY --from=yarax-builder /opt/yarax /opt/yarax
+RUN printf "prefix=/opt/yarax\nincludedir=/opt/yarax/include\nlibdir=/opt/yarax/lib\n\nName: yara-x-capi\nDescription: YARA-X C API\nVersion: 1.23.0\nLibs: -L/opt/yarax/lib -lyara_x_capi -lpthread -ldl -lm\nCflags: -I/opt/yarax/include\n" > /opt/yarax/lib/pkgconfig/yara_x_capi.pc
+ENV PKG_CONFIG_PATH=/opt/yarax/lib/pkgconfig
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . ./
+COPY --from=web-builder /web/dist ./web/dist
+RUN CGO_ENABLED=1 go build -tags yarax -trimpath -o /out/hive ./cmd/hive
+
+# Stage 4: Minimal runtime container
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/* && \
+    groupadd -r -g 1000 honeypot && useradd -r -u 1000 -g 1000 honeypot && \
+    mkdir -p /var/lib/honeypot-hive/pki /var/lib/honeypot-hive/quarantine && \
+    chown -R 1000:1000 /var/lib/honeypot-hive
+COPY --from=yarax-builder /opt/yarax/lib/libyara_x_capi* /usr/local/lib/
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/yarax.conf && ldconfig
+COPY --from=go-builder /out/hive /usr/local/bin/hive
+USER 1000:1000
+EXPOSE 9443 8443
+ENTRYPOINT ["/usr/local/bin/hive"]

@@ -1,0 +1,10 @@
+id: CVE-2017-9841
+persona: php-legacy-cms
+is_kev: true
+severity: 90
+title: PHPUnit eval-stdin.php Unauthenticated RCE
+methods: ["POST", "GET"]
+raw_uri_regex: '(?i)/(?:vendor|lib|tests)?.*phpunit/.*/eval-stdin\.php(\?|$)'
+body_regex: '(?i)<\?(php|=)'
+handler: phpunit_eval
+canary_lure: true

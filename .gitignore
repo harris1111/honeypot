@@ -1,0 +1,26 @@
+# Binaries & build outputs
+/bin/
+/.bin/
+*.exe
+*.out
+coverage.out
+
+# Runtime secrets, PKI, spool, and captured malware samples
+/quarantine/
+/data/
+*.pem
+*.key
+*.crt
+*.db
+.env
+.env.*
+!.env.example
+
+# Frontend artifacts
+/web/node_modules/
+/web/dist/*
+!/web/dist/.keep
+
+# Local planning & agent configuration state
+/plans/
+/.agentkit/

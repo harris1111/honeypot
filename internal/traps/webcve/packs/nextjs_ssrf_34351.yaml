@@ -1,0 +1,10 @@
+id: CVE-2024-34351
+persona: nextjs-modern
+is_kev: false
+severity: 85
+title: Next.js Server Actions Host Header SSRF
+methods: ["GET", "POST"]
+raw_uri_regex: '(?i)(^/_next/image\?|.)'
+any_header_keys: ["Next-Action", "X-Forwarded-Host"]
+handler: nextjs_ssrf
+canary_lure: false

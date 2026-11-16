@@ -1,0 +1,12 @@
+id: CVE-2025-55182
+aliases: ["CVE-2026-126187", "CVE-2026-23869"]
+persona: nextjs-modern
+is_kev: true
+severity: 98
+title: React Server Components Flight RCE / UTF-16LE Bypass / React2DoS
+methods: ["POST"]
+header_regex:
+  content-type: '(?i)(text/x-component|multipart/form-data)'
+any_header_keys: ["Next-Action", "RSC"]
+handler: react2shell_flight
+canary_lure: true

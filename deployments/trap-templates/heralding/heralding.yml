@@ -1,0 +1,24 @@
+bind_host: 0.0.0.0
+log_dir: /var/log/heralding
+
+activity_logging:
+  file: /var/log/heralding/log_session.json
+  authentication_log: /var/log/heralding/log_auth.csv
+
+capabilities:
+  ftp:
+    enabled: true
+    port: 21
+    banner: "220 (vsFTPd 3.0.5)"
+  smtp:
+    enabled: true
+    port: 25
+    banner: "220 mail.corp-relay.local ESMTP Postfix (Ubuntu)"
+  pop3:
+    enabled: true
+    port: 110
+  imap:
+    enabled: true
+    port: 143
+  telnet:
+    enabled: false

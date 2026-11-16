@@ -1,0 +1,11 @@
+id: CVE-2026-109618
+aliases: ["CVE-2026-109619"]
+persona: php-legacy-cms
+is_kev: true
+severity: 94
+title: PHP Core Pre-Boot SAPI Request State Corruption (php2shell)
+methods: ["POST"]
+raw_uri_regex: '(?i)\.php(\?|$)'
+body_regex: '(?i)(boundary=|php_value|__php2shell|filename\s*=.*[\r\n])'
+handler: php2shell_state
+quarantine_body: true
