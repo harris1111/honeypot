@@ -19,15 +19,18 @@ func (rt *Router) handleOpenAI(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case r.Method == http.MethodGet && p == "/v1/models":
-		rt.recordEndpointProbe(r, "openai:models", "LLM-MODELS-ENUM", "Returned decoy OpenAI/Anthropic model list", "", auth)
+		rt.recordEndpointProbe(r, "openai:models", "LLM-MODELS-ENUM", "Returned decoy frontier model list (gpt-6-astra, claude-opus-5-5, gemini-4-argon, deepseek-v4)", "", auth)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
 			"data": []map[string]any{
-				{"id": "gpt-4o", "object": "model", "owned_by": "openai"},
-				{"id": "gpt-4o-2024-11-20", "object": "model", "owned_by": "openai"},
-				{"id": "o3-mini", "object": "model", "owned_by": "openai"},
-				{"id": "claude-3-7-sonnet-20250219", "object": "model", "owned_by": "anthropic"},
+				{"id": "gpt-6-astra", "object": "model", "owned_by": "openai"},
+				{"id": "gpt-6.1-sol", "object": "model", "owned_by": "openai"},
+				{"id": "gpt-6.1-terra", "object": "model", "owned_by": "openai"},
+				{"id": "claude-opus-5-5", "object": "model", "owned_by": "anthropic"},
+				{"id": "claude-sonnet-5-5", "object": "model", "owned_by": "anthropic"},
+				{"id": "gemini-4-argon", "object": "model", "owned_by": "google"},
+				{"id": "deepseek-v4", "object": "model", "owned_by": "deepseek"},
 			},
 		})
 		return

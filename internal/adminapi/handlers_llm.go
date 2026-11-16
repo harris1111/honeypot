@@ -105,7 +105,7 @@ func (s *Server) buildLLMSettingsResponse(r *http.Request) map[string]any {
 		activeMode = "live_upstream"
 	}
 	if model == "" {
-		model = "deepseek-chat"
+		model = "deepseek-v4"
 	}
 	return map[string]any{
 		"base_url":                   baseURL,
@@ -143,7 +143,7 @@ func (s *Server) handleUpdateLLMSettings(w http.ResponseWriter, r *http.Request)
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		model = "deepseek-chat"
+		model = "deepseek-v4"
 	}
 	maxUSD := req.MaxDailyUSD
 	if maxUSD < 0 {

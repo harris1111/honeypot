@@ -81,3 +81,25 @@ func envOr(k, fallback string) string {
 	}
 	return fallback
 }
+
+func TestResolveIPGeoPointAndSensorProjection(t *testing.T) {
+	vn := ResolveIPGeoPoint("203.113.131.1", "VN")
+	if vn.CountryCode != "VN" || vn.Approximate || vn.Lat < 10 || vn.Lon < 100 {
+		t.Fatalf("unexpected VN centroid projection: %+v", vn)
+	}
+
+	apnic := ResolveIPGeoPoint("1.1.1.1", "")
+	if !apnic.Approximate || !strings.HasPrefix(apnic.RegionLabel, "APNIC") {
+		t.Fatalf("expected APNIC fallback projection, got %+v", apnic)
+	}
+
+	ripe := ResolveIPGeoPoint("185.220.101.4", "")
+	if !ripe.Approximate || !strings.HasPrefix(ripe.RegionLabel, "RIPE") {
+		t.Fatalf("expected RIPE fallback projection, got %+v", ripe)
+	}
+
+	sensor := ResolveSensorGeoPoint("ap-southeast-sg", "")
+	if sensor.CountryCode != "SG" || sensor.Approximate {
+		t.Fatalf("expected Singapore sensor point, got %+v", sensor)
+	}
+}

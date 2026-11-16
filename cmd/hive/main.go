@@ -118,7 +118,7 @@ func main() {
 	llmRelay := llmproxy.NewHiveRelay(pg, rd, llmproxy.UpstreamConfig{
 		BaseURL: envOr("HIVE_UPSTREAM_LLM_URL", ""),
 		APIKey:  envOr("HIVE_UPSTREAM_LLM_KEY", ""),
-		Model:   envOr("HIVE_UPSTREAM_LLM_MODEL", "deepseek-chat"),
+		Model:   envOr("HIVE_UPSTREAM_LLM_MODEL", "deepseek-v4"),
 	}, budget.BudgetConfig{MaxDailyUSD: maxDailyUSD})
 	hub.RelayLLMHandler = llmRelay.HandleRelayStream
 

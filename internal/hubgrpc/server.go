@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/harris/honeypot/internal/enrichment"
 	"github.com/harris/honeypot/internal/pki"
 	"github.com/harris/honeypot/internal/store"
 	honeypotv1 "github.com/harris/honeypot/proto/gen/honeypot/v1"
@@ -418,16 +419,22 @@ func (s *Server) PushEventsBatch(ctx context.Context, req *honeypotv1.PushEvents
 	if s.redis != nil {
 		for _, ev := range req.GetEvents() {
 			_ = s.redis.PublishLiveEvent(ctx, map[string]any{
-				"event_uuid": ev.GetEventUuid(),
-				"node_id":    id.NodeID,
-				"source_ip":  ev.GetSourceIp(),
-				"trap_kind":  ev.GetTrapKind(),
-				"persona":    ev.GetPersona(),
-				"cve_id":     ev.GetCveId(),
-				"is_kev":     ev.GetIsKev(),
-				"http_path":  ev.GetHttpPath(),
-				"severity":   ev.GetSeverityScore(),
-				"observed":   ev.GetObservedAt().AsTime().UTC(),
+				"event_uuid":       ev.GetEventUuid(),
+				"node_id":          id.NodeID,
+				"source_ip":        ev.GetSourceIp(),
+				"dest_port":        ev.GetDestPort(),
+				"protocol":         ev.GetProtocol(),
+				"trap_kind":        ev.GetTrapKind(),
+				"persona":          ev.GetPersona(),
+				"cve_id":           ev.GetCveId(),
+				"is_kev":           ev.GetIsKev(),
+				"http_method":      ev.GetHttpMethod(),
+				"http_path":        ev.GetHttpPath(),
+				"response_summary": ev.GetResponseSummary(),
+				"canary_hit":       ev.GetCanaryKeyId() != "",
+				"severity":         ev.GetSeverityScore(),
+				"observed":         ev.GetObservedAt().AsTime().UTC(),
+				"geo":              enrichment.ResolveIPGeoPoint(ev.GetSourceIp(), ""),
 			})
 		}
 	}

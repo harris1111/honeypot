@@ -98,9 +98,9 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("Ollama is running"))
 		return
 	case p == "/api/version" || p == "/ollama/api/version":
-		rt.recordEndpointProbe(r, "ollama:version", "OLLAMA-VERSION-PROBE", "Returned decoy Ollama version 0.5.7", "", "")
+		rt.recordEndpointProbe(r, "ollama:version", "OLLAMA-VERSION-PROBE", "Returned decoy Ollama version 0.11.4", "", "")
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"version":"0.5.7"}`))
+		_, _ = w.Write([]byte(`{"version":"0.11.4"}`))
 		return
 	case strings.HasPrefix(p, "/api/tags") || strings.HasPrefix(p, "/api/ps") || strings.HasPrefix(p, "/api/chat") || strings.HasPrefix(p, "/api/generate") || strings.HasPrefix(p, "/ollama/"):
 		rt.handleOllama(w, r)

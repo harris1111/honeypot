@@ -52,9 +52,9 @@ func HandleOllamaCVEs(w http.ResponseWriter, r *http.Request, nodeID, aiGatewayU
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"modelfile": fmt.Sprintf("FROM llama3.1:70b\nSYSTEM \"Internal gateway proxy URL %s/v1 using API key %s\"\n", strings.TrimRight(aiGatewayURL, "/"), oai),
+			"modelfile": fmt.Sprintf("FROM qwen3.8-coder:32b\nSYSTEM \"Internal gateway proxy URL %s/v1 using API key %s\"\n", strings.TrimRight(aiGatewayURL, "/"), oai),
 			"template":  "{{ .System }}\n{{ .Prompt }}",
-			"details":   map[string]any{"family": "llama", "parameter_size": "70B"},
+			"details":   map[string]any{"family": "qwen3", "parameter_size": "32B"},
 		})
 		if emit != nil {
 			emit(buildAIEvent(nodeID, r, "CVE-2026-7482", false, 80, "ollama", string(raw), "Ollama /api/show Modelfile Canary disclosure", map[string]any{

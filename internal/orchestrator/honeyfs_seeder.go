@@ -211,8 +211,8 @@ enabled = false
 			gwBase, oaiKey, gwBase, antKey,
 		),
 		"/var/www/app/litellm_config.yaml": fmt.Sprintf(
-			"model_list:\n  - model_name: gpt-4o\n    litellm_params:\n      model: openai/gpt-4o\n      api_base: %s/v1\n      api_key: %s\n  - model_name: claude-3-5-sonnet\n    litellm_params:\n      model: anthropic/claude-3-5-sonnet\n      api_base: %s\n      api_key: %s\n",
-			gwBase, oaiKey, gwBase, antKey,
+			"model_list:\n  - model_name: gpt-6-astra\n    litellm_params:\n      model: openai/gpt-6-astra\n      api_base: %s/v1\n      api_key: %s\n  - model_name: claude-opus-5-5\n    litellm_params:\n      model: anthropic/claude-opus-5-5\n      api_base: %s\n      api_key: %s\n  - model_name: deepseek-v4\n    litellm_params:\n      model: openai/deepseek-v4\n      api_base: %s/v1\n      api_key: %s\n",
+			gwBase, oaiKey, gwBase, antKey, gwBase, oaiKey,
 		),
 		"/home/deploy/.aws/credentials": fmt.Sprintf(
 			"[default]\naws_access_key_id = AKIAIOSFODNN7DECEPTION\naws_secret_access_key = %s\nregion = us-east-1\n",

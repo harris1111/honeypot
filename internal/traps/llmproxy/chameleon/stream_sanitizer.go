@@ -32,10 +32,11 @@ func NewStreamSanitizer(persona ResolvedPersona) *StreamSanitizer {
 
 	terms := make([]string, 0, len(persona.AntiLeakTerms)+6)
 	seen := make(map[string]bool)
+	lowerSelf := strings.ToLower(vendorName + " " + personaName)
 	defaults := []string{"deepseek", "alibaba qwen", "qwen", "alibaba", "google gemini", "gemini"}
 	for _, t := range append(defaults, persona.AntiLeakTerms...) {
 		lt := strings.ToLower(strings.TrimSpace(t))
-		if lt != "" && !seen[lt] {
+		if lt != "" && !seen[lt] && !strings.Contains(lowerSelf, lt) {
 			seen[lt] = true
 			terms = append(terms, lt)
 		}

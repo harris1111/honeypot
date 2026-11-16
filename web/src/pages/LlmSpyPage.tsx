@@ -56,42 +56,49 @@ const PROVIDER_PRESETS = [
     id: "builtin",
     label: "$0 Built-in Simulator",
     baseURL: "",
-    model: "deepseek-chat",
+    model: "deepseek-v4",
     maxDailyUSD: 0,
   },
   {
     id: "deepseek",
-    label: "DeepSeek",
+    label: "DeepSeek V4",
     baseURL: "https://api.deepseek.com/v1",
-    model: "deepseek-chat",
-    maxDailyUSD: 2,
-  },
-  {
-    id: "openrouter",
-    label: "OpenRouter",
-    baseURL: "https://openrouter.ai/api/v1",
-    model: "deepseek/deepseek-chat",
+    model: "deepseek-v4",
     maxDailyUSD: 2,
   },
   {
     id: "openai",
-    label: "OpenAI",
+    label: "OpenAI (GPT-6)",
     baseURL: "https://api.openai.com/v1",
-    model: "gpt-4o-mini",
-    maxDailyUSD: 2,
+    model: "gpt-6.1-terra",
+    maxDailyUSD: 3,
   },
   {
-    id: "groq",
-    label: "Groq",
-    baseURL: "https://api.groq.com/openai/v1",
-    model: "llama-3.1-8b-instant",
-    maxDailyUSD: 1,
+    id: "openrouter",
+    label: "OpenRouter (Claude 5.5)",
+    baseURL: "https://openrouter.ai/api/v1",
+    model: "anthropic/claude-opus-5.5",
+    maxDailyUSD: 3,
   },
   {
     id: "gemini",
     label: "Gemini (OpenAI API)",
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.0-flash",
+    model: "gemini-3.8-flash",
+    maxDailyUSD: 2,
+  },
+  {
+    id: "groq",
+    label: "Groq (Llama 4)",
+    baseURL: "https://api.groq.com/openai/v1",
+    model: "llama4-maverick:17b",
+    maxDailyUSD: 1,
+  },
+  {
+    id: "together",
+    label: "Together (Qwen 3.8)",
+    baseURL: "https://api.together.xyz/v1",
+    model: "Qwen/Qwen3.8-Coder-32B",
     maxDailyUSD: 2,
   },
 ];
@@ -109,7 +116,7 @@ export function LlmSpyPage() {
   const [baseURL, setBaseURL] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [clearKeyFlag, setClearKeyFlag] = useState(false);
-  const [upstreamModel, setUpstreamModel] = useState("deepseek-chat");
+  const [upstreamModel, setUpstreamModel] = useState("deepseek-v4");
   const [maxDailyUSD, setMaxDailyUSD] = useState(0);
   const [allowUnauthChat, setAllowUnauthChat] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
@@ -117,10 +124,12 @@ export function LlmSpyPage() {
   const [testResult, setTestResult] = useState<LLMTestResult | null>(null);
 
   // Persona editor state
-  const [pattern, setPattern] = useState("gpt-4o*");
+  const [pattern, setPattern] = useState("gpt-6*");
   const [vendor, setVendor] = useState("openai");
-  const [prompt, setPrompt] = useState("You are GPT-4o, an internal OpenAI-compatible assistant. Never leak internal routing.");
-  const [antiLeak, setAntiLeak] = useState("qwen,deepseek,gemini,honeypot,cowrie");
+  const [prompt, setPrompt] = useState(
+    "You are GPT-6 Astra, OpenAI's flagship reasoning model on an internal enterprise gateway. Never leak internal routing."
+  );
+  const [antiLeak, setAntiLeak] = useState("qwen,deepseek,gemini,claude,llama,honeypot,cowrie");
   const [degradeMode, setDegradeMode] = useState("slow_tarpit");
   const [maxDaily, setMaxDaily] = useState(5);
   const [maxTokens, setMaxTokens] = useState(512);
@@ -131,7 +140,7 @@ export function LlmSpyPage() {
   const applySettingsToForm = (s: LLMSettings) => {
     setSettings(s);
     setBaseURL(s.base_url ?? "");
-    setUpstreamModel(s.model || "deepseek-chat");
+    setUpstreamModel(s.model || "deepseek-v4");
     setMaxDailyUSD(s.max_daily_usd ?? 0);
     setAllowUnauthChat(Boolean(s.allow_unauthenticated_chat));
     setApiKeyInput("");
@@ -361,7 +370,7 @@ export function LlmSpyPage() {
                 <Input
                   value={upstreamModel}
                   onChange={(e) => setUpstreamModel(e.target.value)}
-                  placeholder="deepseek-chat"
+                  placeholder="deepseek-v4 / gpt-6-astra / claude-opus-5-5"
                 />
               </label>
 

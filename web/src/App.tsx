@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   Moon,
+  Radar,
   RefreshCw,
   Server,
   Shield,
@@ -21,6 +22,7 @@ import { Badge, Button, Card, CopyButton, Input } from "./components/ui/primitiv
 import { TerminalReplayModal } from "./components/TerminalReplayModal";
 import { QuickGuideModal } from "./components/QuickGuideModal";
 import { OverviewPage } from "./pages/OverviewPage";
+import { LiveThreatMapPage } from "./pages/LiveThreatMapPage";
 import { NodesContainersPage } from "./pages/NodesContainersPage";
 import { IncidentsExplorerPage } from "./pages/IncidentsExplorerPage";
 import { ActiveGuardPage } from "./pages/ActiveGuardPage";
@@ -30,6 +32,7 @@ import { MalwareVaultPage } from "./pages/MalwareVaultPage";
 
 export type NavTab =
   | "Overview"
+  | "Live Threat Radar"
   | "Incidents & Replays"
   | "Nodes & Traps"
   | "Canary Factory"
@@ -58,6 +61,12 @@ const NAV_GROUPS: NavGroup[] = [
         label: "Overview",
         subtitle: "24h trap activity, recent SSH sessions, top attacker IPs & quick triage stats",
         icon: Activity,
+      },
+      {
+        id: "Live Threat Radar",
+        label: "Live Threat Radar",
+        subtitle: "Real-time Blue-Team SOC attack vector map, kill-chain funnel, velocity timeline & live triage",
+        icon: Radar,
       },
       {
         id: "Incidents & Replays",
@@ -206,8 +215,20 @@ export default function App() {
     ws.onclose = () => setWsConnected(false);
     ws.onmessage = (msg) => {
       try {
-        const tick = JSON.parse(msg.data) as LiveEventTick;
-        setLiveEvents((prev) => [tick, ...prev].slice(0, 20));
+        const parsed = JSON.parse(msg.data) as {
+          type?: string;
+          events?: LiveEventTick[];
+        } & Partial<LiveEventTick>;
+        if (parsed?.type === "telemetry_batch" && Array.isArray(parsed.events)) {
+          const valid = parsed.events.filter((e): e is LiveEventTick => Boolean(e && e.event_uuid));
+          if (valid.length > 0) {
+            setLiveEvents((prev) => [...valid.reverse(), ...prev].slice(0, 80));
+          }
+          return;
+        }
+        if (parsed?.event_uuid) {
+          setLiveEvents((prev) => [parsed as LiveEventTick, ...prev].slice(0, 80));
+        }
       } catch {
         // Ignore malformed ticks.
       }
@@ -536,6 +557,14 @@ export default function App() {
               key={`overview-${refreshNonce}`}
               liveEvents={liveEvents}
               onNavigate={setTab}
+              onOpenReplay={openReplay}
+              onOpenTrapLogs={openTrapLogs}
+            />
+          )}
+          {tab === "Live Threat Radar" && (
+            <LiveThreatMapPage
+              key={`radar-${refreshNonce}`}
+              liveEvents={liveEvents}
               onOpenReplay={openReplay}
               onOpenTrapLogs={openTrapLogs}
             />

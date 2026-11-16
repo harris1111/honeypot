@@ -34,14 +34,28 @@ export interface AuthStatus {
   csrf_token: string;
 }
 
+export interface GeoPoint {
+  lat: number;
+  lon: number;
+  country_code: string;
+  region_label: string;
+  approximate: boolean;
+}
+
 export interface LiveEventTick {
   event_uuid: string;
   source_ip: string;
+  dest_port?: number;
+  protocol?: string;
   trap_kind: string;
   persona: string;
   cve_id: string;
   is_kev: boolean;
+  http_method?: string;
   http_path: string;
+  response_summary?: string;
+  canary_hit?: boolean;
   severity: number;
   observed: string;
+  geo?: GeoPoint;
 }

@@ -33,7 +33,7 @@ func HandleLiteLLM(w http.ResponseWriter, r *http.Request, nodeID string, pool *
 			"token":      keyVal,
 			"expires":    nil,
 			"max_budget": 100.0,
-			"models":     []string{"gpt-4o", "claude-3-7-sonnet-20250219"},
+			"models":     []string{"gpt-6-astra", "gpt-6.1-sol", "claude-opus-5-5", "claude-sonnet-5-5", "gemini-4-argon", "deepseek-v4"},
 		})
 		if emit != nil {
 			emit(buildAIEvent(nodeID, r, "CVE-2026-47101", false, 88, "litellm", string(raw), "LiteLLM /key/generate dispensed pooled Canary Key", map[string]any{

@@ -202,8 +202,9 @@ func (s *Server) registerRoutes() {
 	// Live WebSocket stream
 	s.mux.HandleFunc("GET /api/admin/ws", s.wsHub.ServeWS(s.auth))
 
-	// Overview & Nodes
+	// Overview, Live Radar & Nodes
 	s.mux.HandleFunc("GET /api/admin/overview", s.withAuth(s.handleOverview))
+	s.mux.HandleFunc("GET /api/admin/live-radar", s.withAuth(s.handleLiveRadar))
 	s.mux.HandleFunc("GET /api/admin/nodes", s.withAuth(s.handleListNodes))
 	s.mux.HandleFunc("POST /api/admin/nodes/join-token", s.withAuth(s.handleCreateJoinToken))
 	s.mux.HandleFunc("POST /api/admin/nodes/{id}/revoke", s.withAuth(s.handleRevokeNode))

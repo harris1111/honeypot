@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Bot, Database, Globe, Mail, Play, Terminal } from "lucide-react";
+import { Bot, Database, Globe, Mail, Play, Radar, Terminal } from "lucide-react";
 import { apiFetch, type LiveEventTick } from "../lib/api";
 import { Badge, Button, Card, EmptyState, StatCard } from "../components/ui/primitives";
 import type { NavTab } from "../App";
@@ -120,6 +120,24 @@ export function OverviewPage({
           {err}
         </div>
       )}
+
+      {/* SOC Live Radar Quick Banner */}
+      <div className="hp-surface flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3">
+        <div className="flex items-center gap-3 text-xs sm:text-sm">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600/15 text-blue-600 dark:text-blue-400">
+            <Radar className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="font-semibold text-[var(--text-primary)]">Blue-Team Live Threat Radar</div>
+            <div className="text-xs text-[var(--text-muted)]">
+              Xem bản đồ tấn công toàn cầu theo thời gian thực, kill-chain funnel, biểu đồ lưu lượng và chặn IP 1-click.
+            </div>
+          </div>
+        </div>
+        <Button type="button" onClick={() => onNavigate("Live Threat Radar")} className="px-3 py-1.5 text-xs">
+          <Radar className="h-3.5 w-3.5" /> Open Live Threat Radar →
+        </Button>
+      </div>
 
       {/* Active Trap Services Quick Filter Bar */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">

@@ -110,6 +110,84 @@ describe("Hive Admin Console UI & XSS Safety", () => {
           started_at: "2026-11-16T10:00:00Z",
         });
       }
+      if (url.includes("/api/admin/live-radar")) {
+        return mockJsonResponse({
+          window: "60m",
+          kpis: {
+            events_24h: 42,
+            events_60m: 12,
+            events_5m: 5,
+            events_per_min: 1.0,
+            unique_ips_24h: 9,
+            critical_events_24h: 6,
+            ssh_intrusions_24h: 3,
+            active_bans: 2,
+            online_sensors: 1,
+          },
+          sensor_nodes: [
+            {
+              id: "node-1",
+              name: "vps-sg-1",
+              region: "sg",
+              public_ip: "198.51.100.1",
+              status: "online",
+              geo: { lat: 1.35, lon: 103.82, country_code: "SG", region_label: "Sensor · Singapore", approximate: false },
+            },
+          ],
+          timeline: [
+            { bucket_iso: "2026-11-17T00:50:00Z", label: "00:50", cowrie: 4, webcve: 2, llmproxy: 1, infratrap: 0, heralding: 1, total: 8 },
+            { bucket_iso: "2026-11-17T00:52:00Z", label: "00:52", cowrie: 2, webcve: 1, llmproxy: 1, infratrap: 0, heralding: 0, total: 4 },
+          ],
+          kill_chain: [
+            { stage: "recon", label: "Recon & Service Scans", description: "Port & banner scans", count: 42 },
+            { stage: "bruteforce", label: "Credential & Auth Probes", description: "SSH & FTP brute-force", count: 18 },
+            { stage: "exploitation", label: "Shell & Exploit Attempts", description: "CVE payloads", count: 7 },
+            { stage: "credential_abuse", label: "Canary & AI Gateway Abuse", description: "Stolen keys", count: 3 },
+            { stage: "containment", label: "Quarantined & Mitigated", description: "Guard rules", count: 2 },
+          ],
+          vector_matrix: [
+            { dest_port: 22, protocol: "ssh", trap_kind: "cowrie", count: 28, unique_ips: 6, max_severity: 85 },
+            { dest_port: 11434, protocol: "http", trap_kind: "llmproxy", count: 6, unique_ips: 2, max_severity: 70 },
+          ],
+          attack_origins: [
+            {
+              ip: "198.51.100.77",
+              count: 28,
+              distinct_traps: 2,
+              top_trap: "cowrie",
+              top_port: 22,
+              max_severity: 85,
+              last_seen_at: "2026-11-17T00:52:00Z",
+              greynoise: "malicious",
+              asn: 64512,
+              abuse_score: 90,
+              geo: { lat: 50.11, lon: 8.68, country_code: "DE", region_label: "Germany", approximate: false },
+            },
+          ],
+          top_commands: [{ command: "nvidia-smi", count: 4 }],
+          recent_feed: [
+            {
+              id: "ev-radar-1",
+              source_ip: "198.51.100.77",
+              dest_port: 22,
+              protocol: "ssh",
+              trap_kind: "cowrie",
+              persona: "ssh",
+              cve_id: "",
+              is_kev: false,
+              http_method: "",
+              http_path: "",
+              raw_payload: "uname -a",
+              response_summary: "SSH session closed after GPU probe",
+              severity_score: 85,
+              canary_hit: false,
+              observed_at: "2026-11-17T00:52:00Z",
+              ssh_replay_id: "r1",
+              geo: { lat: 50.11, lon: 8.68, country_code: "DE", region_label: "Germany", approximate: false },
+            },
+          ],
+        });
+      }
       if (url.includes("/api/admin/nodes")) return mockJsonResponse({ nodes: [] });
       if (url.includes("/api/admin/traps")) return mockJsonResponse({ traps: [] });
       if (url.includes("/api/admin/guard/decisions")) return mockJsonResponse({ decisions: [] });
@@ -150,7 +228,7 @@ describe("Hive Admin Console UI & XSS Safety", () => {
       if (url.includes("/api/admin/llm/settings")) {
         return mockJsonResponse({
           base_url: "",
-          model: "deepseek-chat",
+          model: "deepseek-v4",
           has_api_key: false,
           api_key_masked: "",
           max_daily_usd: 0,
@@ -221,7 +299,14 @@ describe("Hive Admin Console UI & XSS Safety", () => {
     fireEvent.click(screen.getByText("LLM Spy & Studio"));
     await waitFor(() => expect(screen.getByText(/Chameleon Persona Studio/)).toBeInTheDocument());
     expect(screen.getByText("Upstream LLM Provider Configuration")).toBeInTheDocument();
-    expect(screen.getByText("DeepSeek")).toBeInTheDocument();
+    expect(screen.getByText("DeepSeek V4")).toBeInTheDocument();
+    expect(screen.getByText("OpenAI (GPT-6)")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Live Threat Radar"));
+    await waitFor(() => expect(screen.getByTestId("world-threat-map")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Global Live Attack Vector Radar/)).toBeInTheDocument());
+    expect(screen.getByText(/24h Attack Kill-Chain Funnel/)).toBeInTheDocument();
+    expect(document.querySelectorAll("img").length).toBe(0);
 
     fireEvent.click(screen.getByText("Canary Factory"));
     await waitFor(() => expect(screen.getByText(/Mint Signed Traceable Canary Keys/)).toBeInTheDocument());

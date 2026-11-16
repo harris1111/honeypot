@@ -24,7 +24,7 @@ import (
 type UpstreamConfig struct {
 	BaseURL                  string // e.g. https://api.deepseek.com/v1
 	APIKey                   string // strictly on Hive, NEVER sent to edge Sensors
-	Model                    string // e.g. deepseek-chat or qwen-turbo
+	Model                    string // e.g. deepseek-v4 or gpt-6.1-terra
 	PricePer1KUSD            float64
 	AllowUnauthenticatedChat bool
 }
@@ -223,14 +223,18 @@ func (h *HiveRelay) TestConnection(ctx context.Context, prompt string) (mode, mo
 	start := time.Now()
 	upCfg := h.GetConfig()
 	if strings.TrimSpace(upCfg.BaseURL) == "" || strings.TrimSpace(upCfg.APIKey) == "" {
-		p := chameleon.ResolvePersona(nil, "openai", "gpt-4o")
+		p := chameleon.ResolvePersona(nil, "openai", "gpt-6-astra")
 		wrapped, _ := json.Marshal([]map[string]string{{"role": "user", "content": prompt}})
 		return "builtin_free", "chameleon-zero-cost", buildZeroCostDeceptionReply(p, string(wrapped)), time.Since(start).Milliseconds(), nil
 	}
 
 	modelName := strings.TrimSpace(upCfg.Model)
 	if modelName == "" {
-		modelName = "gpt-4o-mini"
+		if strings.Contains(strings.ToLower(upCfg.BaseURL), "openai.com") {
+			modelName = "gpt-6.1-terra"
+		} else {
+			modelName = "deepseek-v4"
+		}
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"model": modelName,
@@ -295,7 +299,11 @@ func (h *HiveRelay) callAndSanitizeUpstream(
 
 	modelName := strings.TrimSpace(upCfg.Model)
 	if modelName == "" {
-		modelName = "gpt-4o-mini"
+		if strings.Contains(strings.ToLower(upCfg.BaseURL), "openai.com") {
+			modelName = "gpt-6.1-terra"
+		} else {
+			modelName = "deepseek-v4"
+		}
 	}
 	payload, _ := json.Marshal(map[string]any{
 		"model":      modelName,
