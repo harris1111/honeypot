@@ -166,14 +166,119 @@ enabled = false
 	return dirs, nil
 }
 
-// SeedHeraldingEnvironment prepares writable log directory for Heralding container traps.
-func SeedHeraldingEnvironment(trapsRoot, deploymentID string) (logDir string, err error) {
-	logDir = filepath.Join(filepath.Clean(trapsRoot), deploymentID, "heralding")
-	if err := os.MkdirAll(logDir, 0o777); err != nil {
-		return "", err
+// SeededHeraldingDirs holds host paths prepared for one hardened Heralding container trap.
+type SeededHeraldingDirs struct {
+	RootDir         string
+	LogDir          string
+	WorkDir         string
+	EtcDir          string
+	ConfigPath      string
+	AuthCSVPath     string
+	SessionJSONPath string
+}
+
+// SeedHeraldingEnvironment prepares writable log/work directories and non-root heralding.yml (ports >1024).
+func SeedHeraldingEnvironment(trapsRoot, deploymentID string) (SeededHeraldingDirs, error) {
+	base := filepath.Join(filepath.Clean(trapsRoot), deploymentID)
+	dirs := SeededHeraldingDirs{
+		RootDir:         base,
+		LogDir:          filepath.Join(base, "heralding"),
+		WorkDir:         filepath.Join(base, "heralding-work"),
+		EtcDir:          filepath.Join(base, "heralding-etc"),
+		ConfigPath:      filepath.Join(base, "heralding-etc", "heralding.yml"),
+		AuthCSVPath:     filepath.Join(base, "heralding", "auth.csv"),
+		SessionJSONPath: filepath.Join(base, "heralding", "log_session.json"),
 	}
-	_ = os.Chmod(logDir, 0o777)
-	return logDir, nil
+	for _, d := range []string{dirs.RootDir, dirs.LogDir, dirs.WorkDir, dirs.EtcDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			return SeededHeraldingDirs{}, err
+		}
+	}
+	// Container UID 2000:2000 writes logs & scratch data under /var/log/heralding and /tmp/heralding.
+	for _, rw := range []string{dirs.LogDir, dirs.WorkDir} {
+		if err := os.Chmod(rw, 0o777); err != nil {
+			return SeededHeraldingDirs{}, err
+		}
+	}
+
+	heraldingYAML := `public_ip_as_destination_ip: false
+bind_host: 0.0.0.0
+
+activity_logging:
+  file:
+    enabled: true
+    session_csv_log_file: ""
+    session_json_log_file: "/var/log/heralding/log_session.json"
+    authentication_log_file: "/var/log/heralding/auth.csv"
+  syslog:
+    enabled: false
+  hpfeeds:
+    enabled: false
+  curiosum:
+    enabled: false
+
+hash_cracker:
+  enabled: false
+
+capabilities:
+  ftp:
+    enabled: true
+    port: 2121
+    timeout: 30
+    protocol_specific_data:
+      max_attempts: 3
+      banner: "(vsFTPd 3.0.5)"
+      syst_type: "UNIX Type: L8"
+  smtp:
+    enabled: true
+    port: 2525
+    timeout: 30
+    protocol_specific_data:
+      banner: "mail.corp-relay.local ESMTP Postfix (Debian/GNU)"
+      fqdn: ""
+  pop3:
+    enabled: true
+    port: 2110
+    timeout: 30
+    protocol_specific_data:
+      max_attempts: 3
+      banner: "+OK POP3 server ready"
+  imap:
+    enabled: true
+    port: 2143
+    timeout: 30
+    protocol_specific_data:
+      max_attempts: 3
+      banner: "* OK IMAP4rev1 Server Ready"
+  telnet:
+    enabled: false
+  ssh:
+    enabled: false
+  http:
+    enabled: false
+  https:
+    enabled: false
+  postgresql:
+    enabled: false
+  mysql:
+    enabled: false
+  vnc:
+    enabled: false
+  socks5:
+    enabled: false
+  rdp:
+    enabled: false
+  pop3s:
+    enabled: false
+  imaps:
+    enabled: false
+  smtps:
+    enabled: false
+`
+	if err := os.WriteFile(dirs.ConfigPath, []byte(heraldingYAML), 0o644); err != nil {
+		return SeededHeraldingDirs{}, fmt.Errorf("write heralding.yml: %w", err)
+	}
+	return dirs, nil
 }
 
 func ensureEd25519HostKey(privPath string) error {

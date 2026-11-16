@@ -98,6 +98,37 @@ func TestDockerGuardProxyRejectsEscapesAndAllowsHardenedTrap(t *testing.T) {
 			t.Fatalf("expected 403 for GET traversal %s", u)
 		}
 	}
+
+	// dtagdevsec/heralding with multi-port ExposedPorts passes validation; malformed ExposedPorts rejected
+	heraldingJSON := `{
+		"Image": "dtagdevsec/heralding:24.04.2",
+		"User": "2000:2000",
+		"ExposedPorts": {"2121/tcp": {}, "2525/tcp": {}, "2110/tcp": {}, "2143/tcp": {}},
+		"HostConfig": {
+			"Binds": ["/var/lib/honeypot-sensor/traps/dep2/log:/var/log/heralding:rw"],
+			"NetworkMode": "trap_isolated_net",
+			"Privileged": false,
+			"ReadonlyRootfs": true,
+			"CapDrop": ["ALL"],
+			"PortBindings": {"2121/tcp": [{"HostPort": "21"}]}
+		}
+	}`
+	stub.called = false
+	rH := httptest.NewRequest(http.MethodPost, "/containers/create?name=hp-trap-heralding-1", bytes.NewBufferString(heraldingJSON))
+	wH := httptest.NewRecorder()
+	h.ServeHTTP(wH, rH)
+	if wH.Code != http.StatusCreated || !stub.called {
+		t.Fatalf("expected 201 on valid heralding trap, got %d (%s)", wH.Code, wH.Body.String())
+	}
+
+	stub.called = false
+	badPort := strings.ReplaceAll(heraldingJSON, `"2121/tcp": {}`, `"badport": {}`)
+	rHB := httptest.NewRequest(http.MethodPost, "/containers/create?name=hp-trap-heralding-1", bytes.NewBufferString(badPort))
+	wHB := httptest.NewRecorder()
+	h.ServeHTTP(wHB, rHB)
+	if wHB.Code != http.StatusForbidden || stub.called {
+		t.Fatalf("expected 403 for malformed ExposedPorts, got %d", wHB.Code)
+	}
 	for _, fieldBody := range []string{
 		strings.ReplaceAll(validJSON, `"CapDrop": ["ALL"]`, `"CapDrop": ["ALL"], "Devices": [{"PathOnHost":"/dev/mem"}]`),
 		strings.ReplaceAll(validJSON, `"CapDrop": ["ALL"]`, `"CapDrop": ["ALL"], "SecurityOpt": ["seccomp=unconfined"]`),

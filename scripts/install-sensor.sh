@@ -39,9 +39,11 @@ if [[ -f ./bin/sensor-agent ]]; then
   install -m 0755 ./bin/sensor-agent "${INSTALL_DIR}/sensor-agent"
 fi
 
-# Apply egress nftables lockdown if available
-if [[ -x ./scripts/lockdown-nftables.sh ]]; then
-  ./scripts/lockdown-nftables.sh
+# Install and apply egress nftables lockdown persistently across reboots
+LOCKDOWN_SCRIPT="/usr/local/sbin/honeypot-lockdown-nftables.sh"
+if [[ -f ./scripts/lockdown-nftables.sh ]]; then
+  install -m 0755 ./scripts/lockdown-nftables.sh "${LOCKDOWN_SCRIPT}"
+  "${LOCKDOWN_SCRIPT}"
 fi
 
 # Enroll node over SNI enroll.<hive> with pinned Root CA SHA-256 fingerprint
@@ -63,6 +65,7 @@ Requires=docker.service
 
 [Service]
 Type=simple
+ExecStartPre=-${LOCKDOWN_SCRIPT}
 ExecStart=${INSTALL_DIR}/docker-guard-proxy --listen 127.0.0.1:23750 --allowed-bind-root ${STATE_DIR}/traps
 Restart=always
 RestartSec=3

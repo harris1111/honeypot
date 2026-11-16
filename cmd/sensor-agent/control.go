@@ -19,6 +19,7 @@ import (
 	"github.com/harris/honeypot/internal/pki"
 	"github.com/harris/honeypot/internal/spool"
 	"github.com/harris/honeypot/internal/traps/cowrieparser"
+	"github.com/harris/honeypot/internal/traps/heraldingparser"
 	honeypotv1 "github.com/harris/honeypot/proto/gen/honeypot/v1"
 )
 
@@ -193,7 +194,7 @@ func (c *SensorController) handleCommand(
 	case *honeypotv1.HiveCommand_StopTrap:
 		s := p.StopTrap
 		_ = c.state.SetTrapStateByContainer(s.GetDeploymentId(), s.GetContainerName(), "stopped")
-		c.stopCowrieTailer(s.GetDeploymentId())
+		c.stopTailer(s.GetDeploymentId())
 		if c.nativeRT != nil {
 			c.nativeRT.StopTrap(s.GetDeploymentId())
 		}
@@ -279,6 +280,8 @@ func (c *SensorController) startTrap(ctx context.Context, dt DesiredTrap) error 
 		}
 		if dt.TrapKind == "cowrie" {
 			c.ensureCowrieTailer(ctx, dt.DeploymentID, dt.ListenPort)
+		} else {
+			c.ensureHeraldingTailer(ctx, dt.DeploymentID, dt.ListenPort)
 		}
 		c.setTrapStatus(dt.DeploymentID, dt.TrapKind, dt.ContainerName, dt.ListenPort, dt.Protocol, "running", "")
 		return nil
@@ -417,7 +420,48 @@ func (c *SensorController) ensureCowrieTailer(parentCtx context.Context, deploym
 	}()
 }
 
-func (c *SensorController) stopCowrieTailer(deploymentID string) {
+func (c *SensorController) ensureHeraldingTailer(parentCtx context.Context, deploymentID string, defaultPort uint32) {
+	c.tailersMu.Lock()
+	if cancel, ok := c.tailers[deploymentID]; ok {
+		cancel()
+	}
+	tCtx, cancel := context.WithCancel(parentCtx)
+	c.tailers[deploymentID] = cancel
+	c.tailersMu.Unlock()
+
+	baseDir := filepath.Join(c.stateDir, "traps", deploymentID)
+	authTailer := orchestrator.OpenLogTailer(filepath.Join(baseDir, "heralding", "auth.csv"), filepath.Join(baseDir, "heralding.auth.bookmark.json"))
+	sessTailer := orchestrator.OpenLogTailer(filepath.Join(baseDir, "heralding", "log_session.json"), filepath.Join(baseDir, "heralding.session.bookmark.json"))
+	parser := heraldingparser.NewParser(c.nodeID, defaultPort)
+
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-tCtx.Done():
+				return
+			case <-ticker.C:
+				if lines, err := authTailer.ReadNewLines(); err == nil {
+					for _, ln := range lines {
+						if ev, err := parser.ParseAuthCSVLine(ln); err == nil && ev != nil {
+							_ = c.sp.EnqueueEvent(ev)
+						}
+					}
+				}
+				if lines, err := sessTailer.ReadNewLines(); err == nil {
+					for _, ln := range lines {
+						if ev, err := parser.ParseSessionJSONLine(ln); err == nil && ev != nil {
+							_ = c.sp.EnqueueEvent(ev)
+						}
+					}
+				}
+			}
+		}
+	}()
+}
+
+func (c *SensorController) stopTailer(deploymentID string) {
 	c.tailersMu.Lock()
 	defer c.tailersMu.Unlock()
 	if cancel, ok := c.tailers[deploymentID]; ok {

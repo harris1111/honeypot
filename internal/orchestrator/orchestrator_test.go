@@ -129,6 +129,27 @@ func TestSeedCowrieAndDockerManager(t *testing.T) {
 	if len(seenCalls) < 4 {
 		t.Fatalf("expected docker calls sequence, got %v", seenCalls)
 	}
+
+	// Verify Heralding deployment configures multi-port ExposedPorts/PortBindings and non-root heralding.yml
+	lastCreate = nil
+	hCID, err := mgr.DeployTrap(context.Background(), DeploySpec{
+		DeploymentID: "dep-heralding",
+		TrapKind:     "heralding",
+		ListenPort:   21,
+	})
+	if err != nil || hCID != "cid-cowrie-1" {
+		t.Fatalf("DeployTrap heralding failed: cid=%q err=%v", hCID, err)
+	}
+	hCfg, err := os.ReadFile(filepath.Join(trapsRoot, "dep-heralding", "heralding-etc", "heralding.yml"))
+	if err != nil || !strings.Contains(string(hCfg), "port: 2121") || !strings.Contains(string(hCfg), "port: 2525") {
+		t.Fatalf("expected non-root heralding.yml, got err=%v body=%s", err, string(hCfg))
+	}
+	exp, _ := lastCreate["ExposedPorts"].(map[string]any)
+	for _, k := range []string{"2121/tcp", "2525/tcp", "2110/tcp", "2143/tcp"} {
+		if _, ok := exp[k]; !ok {
+			t.Fatalf("missing ExposedPorts key %s in %+v", k, exp)
+		}
+	}
 }
 
 func TestStagedArtifactSinkDeduplicationAndLogTailer(t *testing.T) {

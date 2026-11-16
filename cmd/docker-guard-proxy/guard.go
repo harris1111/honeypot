@@ -23,8 +23,9 @@ const (
 var (
 	validContainerNameRe = regexp.MustCompile(`^hp-trap-[a-z0-9][a-z0-9_.-]{1,64}$`)
 	validNetworkIDRe     = regexp.MustCompile(`^/networks/[a-zA-Z0-9_.-]{1,128}$`)
+	validExposedPortRe   = regexp.MustCompile(`^[0-9]{1,5}/(tcp|udp)$`)
 	apiVersionPrefixRe   = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
-	allowedImages        = []string{"cowrie/cowrie", "johnnykv/heralding"}
+	allowedImages        = []string{"cowrie/cowrie", "dtagdevsec/heralding", "johnnykv/heralding"}
 	allowedEnvPrefixes   = []string{"COWRIE_", "HERALDING_", "PYTHONDONTWRITEBYTECODE=", "TZ=", "LANG=", "LC_ALL=", "PATH=", "HOME="}
 	forbiddenEnvKeys     = map[string]bool{
 		"LD_PRELOAD":      true,
@@ -45,11 +46,12 @@ type PolicyConfig struct {
 }
 
 type containerCreateBody struct {
-	Image      string   `json:"Image"`
-	User       string   `json:"User"`
-	Env        []string `json:"Env,omitempty"`
-	Cmd        []string `json:"Cmd,omitempty"`
-	HostConfig struct {
+	Image        string              `json:"Image"`
+	User         string              `json:"User"`
+	Env          []string            `json:"Env,omitempty"`
+	Cmd          []string            `json:"Cmd,omitempty"`
+	ExposedPorts map[string]struct{} `json:"ExposedPorts,omitempty"`
+	HostConfig   struct {
 		Binds          []string                       `json:"Binds,omitempty"`
 		Mounts         []json.RawMessage              `json:"Mounts,omitempty"`
 		NetworkMode    string                         `json:"NetworkMode"`
@@ -255,6 +257,11 @@ func validateContainerCreateJSON(body []byte, cleanRoot string) ([]byte, error) 
 	for _, bind := range hc.Binds {
 		if err := validateBind(bind, cleanRoot); err != nil {
 			return nil, err
+		}
+	}
+	for portSpec := range spec.ExposedPorts {
+		if !validExposedPortRe.MatchString(portSpec) {
+			return nil, fmt.Errorf("invalid ExposedPorts key %q", portSpec)
 		}
 	}
 	for _, envKV := range spec.Env {

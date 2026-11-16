@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
 	"errors"
@@ -132,14 +133,16 @@ func (r *NativeTrapRuntime) StartLLMProxyPort(depID string, port uint32, bindHos
 	if err != nil {
 		return err
 	}
+	limLn := netutil.LimitListener(ln, 512)
 	srv := &http.Server{
 		Handler:           r.llmRouter,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      15 * time.Second,
+		WriteTimeout:      75 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	r.registerCloser("infra-"+depID, func() { _ = srv.Close() })
 	go func() {
-		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := srv.Serve(limLn); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Printf("llmproxy port %s stopped: %v", addr, err)
 		}
 	}()
@@ -223,9 +226,11 @@ func (r *NativeTrapRuntime) StartInfraTrap(ctx context.Context, depID, subtype s
 		r.registerCloser(key, func() { cancel(); _ = srv.Close() })
 		go func() { _ = srv.Serve(limLn) }()
 	case "k8s", "kubelet":
-		var serveLn net.Listener = netutil.LimitListener(ln, 512)
-		if port == 6443 || subtype == "k8s" {
+		var serveLn net.Listener
+		if port == 6443 || strings.EqualFold(subtype, "k8s") {
 			serveLn = tls.NewListener(netwrap.NewJA4Listener(ln, 512), r.tlsMgr.TLSConfig())
+		} else {
+			serveLn = newDualHTTPOrTLSListener(subCtx, netutil.LimitListener(ln, 512), r.tlsMgr.TLSConfig())
 		}
 		srv := &http.Server{
 			ConnContext:       netwrap.WithJA4ConnContext,
@@ -279,3 +284,84 @@ func (r *NativeTrapRuntime) registerCloser(k string, fn func()) {
 	}
 	r.listeners[k] = fn
 }
+
+type prefetchedConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (c *prefetchedConn) Read(p []byte) (int, error) {
+	return c.r.Read(p)
+}
+
+type dualHTTPOrTLSListener struct {
+	inner     net.Listener
+	tlsCfg    *tls.Config
+	ch        chan net.Conn
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func newDualHTTPOrTLSListener(ctx context.Context, inner net.Listener, tlsCfg *tls.Config) net.Listener {
+	d := &dualHTTPOrTLSListener{
+		inner:  inner,
+		tlsCfg: tlsCfg,
+		ch:     make(chan net.Conn, 128),
+		done:   make(chan struct{}),
+	}
+	go func() {
+		<-ctx.Done()
+		_ = d.Close()
+	}()
+	go d.acceptLoop()
+	return d
+}
+
+func (d *dualHTTPOrTLSListener) acceptLoop() {
+	for {
+		c, err := d.inner.Accept()
+		if err != nil {
+			_ = d.Close()
+			return
+		}
+		go func(raw net.Conn) {
+			_ = raw.SetReadDeadline(time.Now().Add(3 * time.Second))
+			br := bufio.NewReader(raw)
+			first, err := br.Peek(1)
+			_ = raw.SetReadDeadline(time.Time{})
+			if err != nil {
+				_ = raw.Close()
+				return
+			}
+			var out net.Conn = &prefetchedConn{Conn: raw, r: br}
+			if first[0] == 0x16 && d.tlsCfg != nil {
+				out = tls.Server(&netwrap.JA4Conn{Conn: out}, d.tlsCfg)
+			}
+			select {
+			case d.ch <- out:
+			case <-d.done:
+				_ = out.Close()
+			}
+		}(c)
+	}
+}
+
+func (d *dualHTTPOrTLSListener) Accept() (net.Conn, error) {
+	select {
+	case c := <-d.ch:
+		return c, nil
+	case <-d.done:
+		return nil, net.ErrClosed
+	}
+}
+
+func (d *dualHTTPOrTLSListener) Close() error {
+	var err error
+	d.closeOnce.Do(func() {
+		close(d.done)
+		err = d.inner.Close()
+	})
+	return err
+}
+
+func (d *dualHTTPOrTLSListener) Addr() net.Addr { return d.inner.Addr() }

@@ -109,11 +109,15 @@ func (m *DockerManager) DeployTrap(ctx context.Context, spec DeploySpec) (contai
 			dirs.FsPicklePath + ":/cowrie/cowrie-git/share/cowrie/fs.pickle:ro",
 		}
 	case "heralding":
-		logDir, err := SeedHeraldingEnvironment(m.trapsRoot, spec.DeploymentID)
+		hDirs, err := SeedHeraldingEnvironment(m.trapsRoot, spec.DeploymentID)
 		if err != nil {
 			return "", err
 		}
-		binds = []string{logDir + ":/var/log/heralding:rw"}
+		binds = []string{
+			hDirs.LogDir + ":/var/log/heralding:rw",
+			hDirs.WorkDir + ":/tmp/heralding:rw",
+			hDirs.ConfigPath + ":/etc/heralding/heralding.yml:ro",
+		}
 	}
 
 	env := append([]string(nil), spec.Env...)
@@ -121,10 +125,27 @@ func (m *DockerManager) DeployTrap(ctx context.Context, spec DeploySpec) (contai
 		env = append(env, "PYTHONDONTWRITEBYTECODE=1")
 	}
 
+	portBindings := map[string][]map[string]string{
+		prof.ContainerPort: {{"HostPort": fmt.Sprintf("%d", spec.ListenPort)}},
+	}
+	if spec.ListenPort == prof.DefaultPort || spec.ListenPort == 0 {
+		if spec.ListenPort == 0 && prof.DefaultPort > 0 {
+			portBindings[prof.ContainerPort] = []map[string]string{{"HostPort": fmt.Sprintf("%d", prof.DefaultPort)}}
+		}
+		for cPort, hPort := range prof.ExtraHostPorts {
+			portBindings[cPort] = []map[string]string{{"HostPort": fmt.Sprintf("%d", hPort)}}
+		}
+	}
+	exposedPorts := make(map[string]struct{}, len(portBindings))
+	for cPort := range portBindings {
+		exposedPorts[cPort] = struct{}{}
+	}
+
 	createBody, _ := json.Marshal(map[string]any{
-		"Image": img,
-		"User":  prof.User,
-		"Env":   env,
+		"Image":        img,
+		"User":         prof.User,
+		"Env":          env,
+		"ExposedPorts": exposedPorts,
 		"HostConfig": map[string]any{
 			"Binds":          binds,
 			"NetworkMode":    "trap_isolated_net",
@@ -134,14 +155,12 @@ func (m *DockerManager) DeployTrap(ctx context.Context, spec DeploySpec) (contai
 				"/tmp": "rw,noexec,nosuid,size=64m",
 				"/run": "rw,noexec,nosuid,size=16m",
 			},
-			"CapDrop":    []string{"ALL"},
+			"CapDrop":     []string{"ALL"},
 			"SecurityOpt": []string{"no-new-privileges:true"},
-			"PidsLimit":  128,
-			"Memory":     256 * 1024 * 1024,
-			"NanoCpus":   500_000_000,
-			"PortBindings": map[string][]map[string]string{
-				prof.ContainerPort: {{"HostPort": fmt.Sprintf("%d", spec.ListenPort)}},
-			},
+			"PidsLimit":   128,
+			"Memory":      256 * 1024 * 1024,
+			"NanoCpus":    500_000_000,
+			"PortBindings": portBindings,
 		},
 	})
 
@@ -169,6 +188,13 @@ func (m *DockerManager) DeployTrap(ctx context.Context, spec DeploySpec) (contai
 		if pullErr := m.pullImage(ctx, img); pullErr != nil {
 			return "", fmt.Errorf("create container %s missing image and pull failed: %w", name, pullErr)
 		}
+		status, b, err = sendCreate()
+		if err != nil {
+			return "", err
+		}
+	}
+	if status == http.StatusConflict {
+		_ = m.removeContainer(ctx, name)
 		status, b, err = sendCreate()
 		if err != nil {
 			return "", err
@@ -237,6 +263,20 @@ func (m *DockerManager) containerAction(ctx context.Context, containerName, acti
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	return fmt.Errorf("docker action %s on %s failed (%d): %s", action, containerName, resp.StatusCode, string(b))
+}
+
+func (m *DockerManager) removeContainer(ctx context.Context, containerName string) error {
+	u := fmt.Sprintf("%s/containers/%s?force=1", m.proxyBaseURL, url.PathEscape(containerName))
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, u, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := m.client.Do(req)
+	if err != nil {
+		return err
+	}
+	_ = resp.Body.Close()
+	return nil
 }
 
 func (m *DockerManager) pullImage(ctx context.Context, imageRef string) error {
