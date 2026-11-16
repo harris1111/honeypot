@@ -101,7 +101,7 @@ func TestDockerGuardProxyRejectsEscapesAndAllowsHardenedTrap(t *testing.T) {
 
 	// dtagdevsec/heralding with multi-port ExposedPorts passes validation; malformed ExposedPorts rejected
 	heraldingJSON := `{
-		"Image": "dtagdevsec/heralding:24.04.2",
+		"Image": "honeypot/heralding:24.04.2",
 		"User": "2000:2000",
 		"ExposedPorts": {"2121/tcp": {}, "2525/tcp": {}, "2110/tcp": {}, "2143/tcp": {}},
 		"HostConfig": {

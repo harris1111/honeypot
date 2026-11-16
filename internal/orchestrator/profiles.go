@@ -25,12 +25,12 @@ var BuiltinProfiles = map[string]TrapProfile{
 	},
 	"heralding": {
 		Kind:           "heralding",
-		Image:          "dtagdevsec/heralding:24.04.2",
+		Image:          "honeypot/heralding:24.04.2",
 		DefaultPort:    21,
 		Protocol:       "tcp",
 		ContainerPort:  "2121/tcp",
 		ExtraHostPorts: map[string]uint32{"2525/tcp": 25, "2110/tcp": 110, "2143/tcp": 143},
 		User:           "2000:2000",
-		AllowedEnv:     []string{"HERALDING_FTP", "HERALDING_SMTP", "HERALDING_POP3", "HERALDING_IMAP", "TZ"},
+		AllowedEnv:     []string{"HERALDING_FTP", "HERALDING_SMTP", "HERALDING_POP3", "HERALDING_IMAP", "PYTHONDONTWRITEBYTECODE", "TZ"},
 	},
 }

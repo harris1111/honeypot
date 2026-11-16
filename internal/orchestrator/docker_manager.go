@@ -121,7 +121,7 @@ func (m *DockerManager) DeployTrap(ctx context.Context, spec DeploySpec) (contai
 	}
 
 	env := append([]string(nil), spec.Env...)
-	if spec.TrapKind == "cowrie" {
+	if spec.TrapKind == "cowrie" || spec.TrapKind == "heralding" {
 		env = append(env, "PYTHONDONTWRITEBYTECODE=1")
 	}
 

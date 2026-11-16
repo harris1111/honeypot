@@ -25,7 +25,7 @@ var (
 	validNetworkIDRe     = regexp.MustCompile(`^/networks/[a-zA-Z0-9_.-]{1,128}$`)
 	validExposedPortRe   = regexp.MustCompile(`^[0-9]{1,5}/(tcp|udp)$`)
 	apiVersionPrefixRe   = regexp.MustCompile(`^/v[0-9]+\.[0-9]+`)
-	allowedImages        = []string{"cowrie/cowrie", "dtagdevsec/heralding", "johnnykv/heralding"}
+	allowedImages        = []string{"cowrie/cowrie", "honeypot/heralding", "dtagdevsec/heralding", "johnnykv/heralding"}
 	allowedEnvPrefixes   = []string{"COWRIE_", "HERALDING_", "PYTHONDONTWRITEBYTECODE=", "TZ=", "LANG=", "LC_ALL=", "PATH=", "HOME="}
 	forbiddenEnvKeys     = map[string]bool{
 		"LD_PRELOAD":      true,

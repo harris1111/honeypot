@@ -39,6 +39,10 @@ if [[ -f ./bin/sensor-agent ]]; then
   install -m 0755 ./bin/sensor-agent "${INSTALL_DIR}/sensor-agent"
 fi
 
+if command -v docker >/dev/null 2>&1 && [[ -f ./deployments/trap-templates/heralding/Dockerfile ]]; then
+  docker build -t honeypot/heralding:24.04.2 ./deployments/trap-templates/heralding >/dev/null
+fi
+
 # Install and apply egress nftables lockdown persistently across reboots
 LOCKDOWN_SCRIPT="/usr/local/sbin/honeypot-lockdown-nftables.sh"
 if [[ -f ./scripts/lockdown-nftables.sh ]]; then
