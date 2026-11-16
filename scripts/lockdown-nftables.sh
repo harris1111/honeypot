@@ -4,6 +4,7 @@ set -euo pipefail
 # Enforces strict dual-stack IPv4 + IPv6 egress isolation on honeypot trap containers
 # so even a compromised container inside trap_isolated_net cannot dial C2 or internal metadata.
 TRAP_BRIDGE_IF="${TRAP_BRIDGE_IF:-br-trap}"
+HONEYPOT_UID="${HONEYPOT_UID:-$(id -u honeypot 2>/dev/null || echo 1000)}"
 
 if ! command -v nft >/dev/null 2>&1; then
   echo "nftables (nft) binary is required" >&2
@@ -31,8 +32,8 @@ table inet honeypot_isolation {
 
     chain postrouting_clamp {
         type filter hook output priority filter - 10; policy accept;
-        ip daddr 169.254.169.254 skuid 1000 counter reject
-        ip6 daddr fd00:ec2::254 skuid 1000 counter reject
+        ip daddr 169.254.169.254 skuid ${HONEYPOT_UID} counter reject
+        ip6 daddr fd00:ec2::254 skuid ${HONEYPOT_UID} counter reject
     }
 }
 EOF

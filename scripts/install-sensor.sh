@@ -22,7 +22,13 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-id -u honeypot >/dev/null 2>&1 || useradd -r -m -u 1000 -s /usr/sbin/nologin honeypot
+if ! id -u honeypot >/dev/null 2>&1; then
+  if ! getent passwd 1000 >/dev/null 2>&1; then
+    useradd -r -m -u 1000 -s /usr/sbin/nologin honeypot
+  else
+    useradd -r -m -s /usr/sbin/nologin honeypot
+  fi
+fi
 mkdir -p "${STATE_DIR}/traps" "${STATE_DIR}/artifacts" "${STATE_DIR}/certmagic"
 chown -R honeypot:honeypot "${STATE_DIR}"
 

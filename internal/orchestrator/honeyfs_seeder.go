@@ -58,6 +58,21 @@ func SeedCowrieEnvironment(trapsRoot, deploymentID, aiGatewayURL string, pool *c
 			return SeededCowrieDirs{}, fmt.Errorf("mkdir %s: %w", d, err)
 		}
 	}
+	// Allow unprivileged container UID 1000:1000 to write logs/downloads even when host honeypot user UID differs.
+	for _, rwDir := range []string{
+		dirs.VarDir,
+		filepath.Join(dirs.VarDir, "run"),
+		filepath.Join(dirs.VarDir, "log"),
+		filepath.Dir(dirs.LogJSONPath),
+		filepath.Join(dirs.VarDir, "lib"),
+		filepath.Join(dirs.VarDir, "lib", "cowrie"),
+		dirs.DownloadsDir,
+		dirs.TTYDir,
+	} {
+		if err := os.Chmod(rwDir, 0o777); err != nil {
+			return SeededCowrieDirs{}, fmt.Errorf("chmod %s: %w", rwDir, err)
+		}
+	}
 
 	if err := ensureEd25519HostKey(filepath.Join(dirs.EtcDir, "ssh_host_ed25519_key")); err != nil {
 		return SeededCowrieDirs{}, err
@@ -154,9 +169,10 @@ enabled = false
 // SeedHeraldingEnvironment prepares writable log directory for Heralding container traps.
 func SeedHeraldingEnvironment(trapsRoot, deploymentID string) (logDir string, err error) {
 	logDir = filepath.Join(filepath.Clean(trapsRoot), deploymentID, "heralding")
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
+	if err := os.MkdirAll(logDir, 0o777); err != nil {
 		return "", err
 	}
+	_ = os.Chmod(logDir, 0o777)
 	return logDir, nil
 }
 
