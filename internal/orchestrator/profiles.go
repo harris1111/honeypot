@@ -15,7 +15,7 @@ type TrapProfile struct {
 var BuiltinProfiles = map[string]TrapProfile{
 	"cowrie": {
 		Kind:           "cowrie",
-		Image:          "cowrie/cowrie:latest",
+		Image:          "honeypot/cowrie:latest",
 		DefaultPort:    22,
 		Protocol:       "tcp",
 		ContainerPort:  "2222/tcp",

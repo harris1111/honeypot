@@ -11,12 +11,13 @@ import (
 
 func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var totalEvents, openIncidents, pendingTriage, malwareCount, canaryHits int64
+	var totalEvents, openIncidents, pendingTriage, malwareCount, canaryHits, sshSessions24h int64
 	_ = s.pg.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM telemetry_events WHERE observed_at >= NOW() - INTERVAL '24 hours'`).Scan(&totalEvents)
 	_ = s.pg.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM attack_incidents WHERE status = 'open'`).Scan(&openIncidents)
 	_ = s.pg.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM guard_decisions WHERE status = 'pending_approval'`).Scan(&pendingTriage)
 	_ = s.pg.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM malware_artifacts`).Scan(&malwareCount)
 	_ = s.pg.Pool.QueryRow(ctx, `SELECT COALESCE(SUM(hit_count), 0) FROM canary_keys`).Scan(&canaryHits)
+	_ = s.pg.Pool.QueryRow(ctx, `SELECT COUNT(*) FROM ssh_session_replays WHERE started_at >= NOW() - INTERVAL '24 hours'`).Scan(&sshSessions24h)
 
 	topCVEs := make([]map[string]any, 0)
 	if rows, err := s.pg.Pool.Query(ctx, `
@@ -35,19 +36,85 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	eventsByTrap := make([]map[string]any, 0)
+	if rows, err := s.pg.Pool.Query(ctx, `
+		SELECT trap_kind, COUNT(*) AS cnt
+		FROM telemetry_events
+		WHERE observed_at >= NOW() - INTERVAL '24 hours'
+		GROUP BY trap_kind ORDER BY cnt DESC
+	`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var tk string
+			var cnt int64
+			if rows.Scan(&tk, &cnt) == nil {
+				eventsByTrap = append(eventsByTrap, map[string]any{"trap_kind": tk, "count": cnt})
+			}
+		}
+	}
+
+	topIPs := make([]map[string]any, 0)
+	if rows, err := s.pg.Pool.Query(ctx, `
+		SELECT host(source_ip), COUNT(*) AS cnt, COALESCE(MAX(country_code), '')
+		FROM telemetry_events
+		WHERE observed_at >= NOW() - INTERVAL '24 hours'
+		GROUP BY source_ip ORDER BY cnt DESC LIMIT 8
+	`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var ip, cc string
+			var cnt int64
+			if rows.Scan(&ip, &cnt, &cc) == nil {
+				topIPs = append(topIPs, map[string]any{"ip": ip, "count": cnt, "country_code": cc})
+			}
+		}
+	}
+
+	recentSSHSessions := make([]map[string]any, 0)
+	if rows, err := s.pg.Pool.Query(ctx, `
+		SELECT id::text, host(source_ip), username, auth_succeeded, COALESCE(commands, ARRAY[]::TEXT[]), duration_ms, started_at::text
+		FROM ssh_session_replays ORDER BY started_at DESC LIMIT 8
+	`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, sip, usr, st string
+			var authOK bool
+			var cmds []string
+			var dur int64
+			if rows.Scan(&id, &sip, &usr, &authOK, &cmds, &dur, &st) == nil {
+				if cmds == nil {
+					cmds = []string{}
+				}
+				recentSSHSessions = append(recentSSHSessions, map[string]any{
+					"id":             id,
+					"source_ip":      sip,
+					"username":       usr,
+					"auth_succeeded": authOK,
+					"commands":       cmds,
+					"duration_ms":    dur,
+					"started_at":     st,
+				})
+			}
+		}
+	}
+
 	var spentUSD float64
 	if s.breaker != nil {
 		spentUSD = s.breaker.CurrentDailySpentUSD(ctx)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"events_24h":     totalEvents,
-		"open_incidents": openIncidents,
-		"pending_triage": pendingTriage,
-		"malware_count":  malwareCount,
-		"canary_hits":    canaryHits,
-		"llm_spent_usd":  spentUSD,
-		"top_cves":       topCVEs,
+		"events_24h":          totalEvents,
+		"ssh_sessions_24h":    sshSessions24h,
+		"open_incidents":      openIncidents,
+		"pending_triage":      pendingTriage,
+		"malware_count":       malwareCount,
+		"canary_hits":         canaryHits,
+		"llm_spent_usd":       spentUSD,
+		"top_cves":            topCVEs,
+		"events_by_trap":      eventsByTrap,
+		"top_ips":             topIPs,
+		"recent_ssh_sessions": recentSSHSessions,
 	})
 }
 

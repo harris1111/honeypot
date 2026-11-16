@@ -1,66 +1,170 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 
-function mockJson(data: unknown) {
+function mockJsonResponse(body: unknown, status = 200) {
   return Promise.resolve(
-    new Response(JSON.stringify(data), {
-      status: 200,
+    new Response(JSON.stringify(body), {
+      status,
       headers: { "Content-Type": "application/json" },
     })
   );
 }
 
-describe("Hive Admin Console 7 Screens & XSS Hardening", () => {
+describe("Hive Admin Console UI & XSS Safety", () => {
   beforeEach(() => {
+    const store = new Map<string, string>();
+    const memoryStorage: Storage = {
+      get length() {
+        return store.size;
+      },
+      clear: () => store.clear(),
+      getItem: (k: string) => store.get(k) ?? null,
+      key: (i: number) => Array.from(store.keys())[i] ?? null,
+      removeItem: (k: string) => {
+        store.delete(k);
+      },
+      setItem: (k: string, v: string) => {
+        store.set(k, String(v));
+      },
+    };
+    Object.defineProperty(globalThis, "localStorage", { value: memoryStorage, configurable: true, writable: true });
+    Object.defineProperty(window, "localStorage", { value: memoryStorage, configurable: true, writable: true });
+    document.documentElement.classList.remove("dark");
     vi.restoreAllMocks();
-    (globalThis as any).WebSocket = undefined;
+    (globalThis as any).WebSocket = class {
+      close() {}
+    };
   });
 
-  it("renders all 7 navigation screens and escapes XSS/malicious URLs safely", async () => {
-    const fetchMock = vi.fn((url: RequestInfo | URL) => {
-      const s = String(url);
-      if (s.includes("/api/admin/auth/status")) {
-        return mockJson({ initialized: true, logged_in: true, username: "operator", csrf_token: "csrf-1" });
+  afterEach(() => {
+    cleanup();
+  });
+
+  function installAuthenticatedFetchMock() {
+    vi.spyOn(globalThis, "fetch").mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/api/admin/auth/status")) {
+        return mockJsonResponse({
+          initialized: true,
+          logged_in: true,
+          username: "operator",
+          csrf_token: "test-csrf-token",
+        });
       }
-      if (s.includes("/api/admin/overview")) {
-        return mockJson({ events_24h: 12, open_incidents: 2, pending_triage: 1, malware_count: 1, canary_hits: 3, llm_spent_usd: 0.42, top_cves: [] });
+      if (url.includes("/api/admin/overview")) {
+        return mockJsonResponse({
+          events_24h: 42,
+          ssh_sessions_24h: 3,
+          open_incidents: 2,
+          pending_triage: 1,
+          malware_count: 1,
+          canary_hits: 3,
+          llm_spent_usd: 0.12,
+          top_cves: [{ cve_id: "CVE-2025-29927", count: 14 }],
+          events_by_trap: [
+            { trap_kind: "cowrie", count: 28 },
+            { trap_kind: "webcve", count: 14 },
+          ],
+          top_ips: [{ ip: "198.51.100.77", count: 28, country_code: "US" }],
+          recent_ssh_sessions: [
+            {
+              id: "r1",
+              source_ip: "198.51.100.77",
+              username: "root",
+              auth_succeeded: true,
+              commands: ["uname -a", "cat /var/www/app/.env"],
+              duration_ms: 1400,
+              started_at: "2026-11-16T10:00:00Z",
+            },
+          ],
+        });
       }
-      if (s.includes("/api/admin/telemetry")) {
-        return mockJson({
-          events: [{
-            id: "ev-1", source_ip: "198.51.100.1", trap_kind: "webcve", cve_id: "CVE-2025-29927", is_kev: true,
-            http_method: "POST", http_path: "/admin", raw_payload: "<img src=x onerror=alert(1)>", severity_score: 95,
-          }],
+      if (url.includes("/api/admin/nodes")) return mockJsonResponse({ nodes: [] });
+      if (url.includes("/api/admin/traps")) return mockJsonResponse({ traps: [] });
+      if (url.includes("/api/admin/guard/decisions")) return mockJsonResponse({ decisions: [] });
+      if (url.includes("/api/admin/guard/allowlist")) return mockJsonResponse({ allowlist: [] });
+      if (url.includes("/api/admin/guard/rules")) return mockJsonResponse({ rules: [] });
+      if (url.includes("/api/admin/guard/waf-expr")) return mockJsonResponse({ expression: "", enterprise_enabled: false });
+      if (url.includes("/api/admin/audit-logs")) return mockJsonResponse({ logs: [] });
+      if (url.includes("/api/admin/incidents")) return mockJsonResponse({ incidents: [] });
+      if (url.includes("/api/admin/telemetry")) {
+        return mockJsonResponse({
+          events: [
+            {
+              id: "ev1",
+              source_ip: "203.0.113.9",
+              dest_port: 80,
+              protocol: "http",
+              trap_kind: "webcve",
+              persona: "nextjs",
+              cve_id: "CVE-2025-29927",
+              is_kev: true,
+              ja4: "t13d00_test",
+              hassh: "",
+              http_method: "GET",
+              http_path: "<img src=x onerror=alert(1)>",
+              raw_payload: "GET <img src=x onerror=alert(1)> HTTP/1.1",
+              response_summary: "trapped",
+              severity_score: 90,
+              observed_at: "2026-11-16T10:00:00Z",
+            },
+          ],
           replays: [],
         });
       }
-      if (s.includes("/api/admin/malware")) {
-        return mockJson({
-          artifacts: [{
-            sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            yara_matches: ["Kinsing_Golang_Malware"],
-            vt_malicious: 20, vt_total: 60, seen_count: 4,
-            source_urls: ["http://evil.c2.invalid/kinsing.sh"],
-          }],
+      if (url.includes("/api/admin/llm/conversations")) return mockJsonResponse({ conversations: [] });
+      if (url.includes("/api/admin/llm/personas")) return mockJsonResponse({ personas: [] });
+      if (url.includes("/api/admin/llm/budget")) return mockJsonResponse({ spent_today_usd: 0, cap_usd: 5 });
+      if (url.includes("/api/admin/canaries")) return mockJsonResponse({ canaries: [] });
+      if (url.includes("/api/admin/malware")) {
+        return mockJsonResponse({
+          artifacts: [
+            {
+              sha256: "a".repeat(64),
+              md5: "b".repeat(32),
+              file_size: 128,
+              mime_type: "text/x-sh",
+              source_urls: ["http://evil.c2.invalid/kinsing.sh"],
+              yara_matches: ["Shell_Payload"],
+              vt_malicious: 0,
+              vt_total: 0,
+              seen_count: 1,
+              first_seen_at: "2026-11-16T10:00:00Z",
+              last_seen_at: "2026-11-16T10:00:00Z",
+            },
+          ],
         });
       }
-      return mockJson({ nodes: [], traps: [], decisions: [], allowlist: [], rules: [], incidents: [], conversations: [], personas: [], canaries: [] });
+      return mockJsonResponse({});
     });
-    vi.stubGlobal("fetch", fetchMock);
+  }
 
+  it("renders navigation, escapes attacker payloads without XSS, and toggles Light/Dark theme", async () => {
+    installAuthenticatedFetchMock();
     render(<App />);
-    await waitFor(() => expect(screen.getByText("DECEPTION HIVE")).toBeInTheDocument());
 
-    // Switch through all 7 tabs
+    await waitFor(() => expect(screen.getByText("DECEPTION HIVE")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/uname -a/)).toBeInTheDocument());
+
+    // Light / Dark theme toggle
+    const toggleBtn = screen.getByTestId("theme-toggle");
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    fireEvent.click(toggleBtn);
+    expect(document.documentElement.classList.contains("dark")).toBe(true);
+    expect(localStorage.getItem("hp_theme")).toBe("dark");
+    fireEvent.click(toggleBtn);
+    expect(document.documentElement.classList.contains("dark")).toBe(false);
+    expect(localStorage.getItem("hp_theme")).toBe("light");
+
     fireEvent.click(screen.getByText("Nodes & Traps"));
-    await waitFor(() => expect(screen.getByText(/Enroll Remote Node/)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Enroll Remote Node")).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("Active Guard"));
     await waitFor(() => expect(screen.getByText(/Zero Blind Auto-Ban Default/)).toBeInTheDocument());
 
     fireEvent.click(screen.getByText("Incidents & Replays"));
-    await waitFor(() => expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/<img src=x onerror=alert\(1\)>/i)).toBeInTheDocument());
     expect(document.querySelectorAll("img").length).toBe(0);
 
     fireEvent.click(screen.getByText("LLM Spy & Studio"));
@@ -71,8 +175,7 @@ describe("Hive Admin Console 7 Screens & XSS Hardening", () => {
 
     fireEvent.click(screen.getByText("Malware Vault"));
     await waitFor(() => expect(screen.getByText("http://evil.c2.invalid/kinsing.sh")).toBeInTheDocument());
-    // Ensure malicious C2 URL is NOT rendered as a clickable external anchor
-    const evilLink = document.querySelector('a[href="http://evil.c2.invalid/kinsing.sh"]');
-    expect(evilLink).toBeNull();
+    const urlEl = screen.getByText("http://evil.c2.invalid/kinsing.sh");
+    expect(urlEl.closest("a")).toBeNull();
   });
 });

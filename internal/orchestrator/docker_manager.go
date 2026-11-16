@@ -106,6 +106,7 @@ func (m *DockerManager) DeployTrap(ctx context.Context, spec DeploySpec) (contai
 			dirs.VarDir + ":/cowrie/cowrie-git/var:rw",
 			dirs.EtcDir + ":/cowrie/cowrie-git/etc:ro",
 			dirs.HoneyfsDir + ":/cowrie/cowrie-git/honeyfs:ro",
+			dirs.TxtcmdsDir + ":/cowrie/cowrie-git/txtcmds:ro",
 			dirs.FsPicklePath + ":/cowrie/cowrie-git/share/cowrie/fs.pickle:ro",
 		}
 	case "heralding":

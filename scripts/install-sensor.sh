@@ -39,6 +39,9 @@ if [[ -f ./bin/sensor-agent ]]; then
   install -m 0755 ./bin/sensor-agent "${INSTALL_DIR}/sensor-agent"
 fi
 
+if command -v docker >/dev/null 2>&1 && [[ -f ./deployments/trap-templates/cowrie/Dockerfile ]]; then
+  docker build -t honeypot/cowrie:latest ./deployments/trap-templates/cowrie >/dev/null
+fi
 if command -v docker >/dev/null 2>&1 && [[ -f ./deployments/trap-templates/heralding/Dockerfile ]]; then
   docker build -t honeypot/heralding:24.04.2 ./deployments/trap-templates/heralding >/dev/null
 fi

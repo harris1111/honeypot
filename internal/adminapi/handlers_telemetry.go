@@ -1,6 +1,9 @@
 package adminapi
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 func (s *Server) handleListIncidents(w http.ResponseWriter, r *http.Request) {
 	rows, err := s.pg.Pool.Query(r.Context(), `
@@ -85,11 +88,15 @@ func (s *Server) handleGetSSHReplay(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListTelemetry(w http.ResponseWriter, r *http.Request) {
+	trapFilter := strings.TrimSpace(r.URL.Query().Get("trap"))
 	rows, err := s.pg.Pool.Query(r.Context(), `
-		SELECT id::text, host(source_ip), trap_kind, persona, cve_id, is_kev, ja4, http_method, http_path,
-		       response_summary, greynoise_classification, severity_score, observed_at::text
-		FROM telemetry_events ORDER BY observed_at DESC LIMIT 100
-	`)
+		SELECT id::text, host(source_ip), dest_port, protocol, trap_kind, persona, cve_id, is_kev,
+		       ja4, hassh, http_method, http_path, raw_payload, response_summary,
+		       greynoise_classification, severity_score, observed_at::text
+		FROM telemetry_events
+		WHERE ($1 = '' OR trap_kind = $1)
+		ORDER BY observed_at DESC LIMIT 150
+	`, trapFilter)
 	if err != nil {
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -97,27 +104,46 @@ func (s *Server) handleListTelemetry(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	events := make([]map[string]any, 0)
 	for rows.Next() {
-		var id, sip, tk, pers, cve, ja4, meth, hpath, sum, gn, obs string
+		var id, sip, proto, tk, pers, cve, ja4, hassh, meth, hpath, rawp, sum, gn, obs string
+		var destPort, score int
 		var kev bool
-		var score int
-		if rows.Scan(&id, &sip, &tk, &pers, &cve, &kev, &ja4, &meth, &hpath, &sum, &gn, &score, &obs) == nil {
+		if rows.Scan(&id, &sip, &destPort, &proto, &tk, &pers, &cve, &kev, &ja4, &hassh, &meth, &hpath, &rawp, &sum, &gn, &score, &obs) == nil {
 			events = append(events, map[string]any{
-				"id": id, "source_ip": sip, "trap_kind": tk, "persona": pers, "cve_id": cve, "is_kev": kev,
-				"ja4": ja4, "http_method": meth, "http_path": hpath, "response_summary": sum, "greynoise": gn,
+				"id": id, "source_ip": sip, "dest_port": destPort, "protocol": proto,
+				"trap_kind": tk, "persona": pers, "cve_id": cve, "is_kev": kev,
+				"ja4": ja4, "hassh": hassh, "http_method": meth, "http_path": hpath,
+				"raw_payload": rawp, "response_summary": sum, "greynoise": gn,
 				"severity_score": score, "observed_at": obs,
 			})
 		}
 	}
 
-	replaysRows, _ := s.pg.Pool.Query(r.Context(), `SELECT id::text, host(source_ip), username, hassh, duration_ms, started_at::text FROM ssh_session_replays ORDER BY started_at DESC LIMIT 20`)
+	replaysRows, _ := s.pg.Pool.Query(r.Context(), `
+		SELECT id::text, host(source_ip), username, hassh, auth_succeeded, COALESCE(commands, ARRAY[]::TEXT[]), duration_ms, started_at::text
+		FROM ssh_session_replays ORDER BY started_at DESC LIMIT 40
+	`)
 	replays := make([]map[string]any, 0)
 	if replaysRows != nil {
 		defer replaysRows.Close()
 		for replaysRows.Next() {
 			var id, sip, usr, h, st string
+			var authOK bool
+			var cmds []string
 			var d int64
-			if replaysRows.Scan(&id, &sip, &usr, &h, &d, &st) == nil {
-				replays = append(replays, map[string]any{"id": id, "source_ip": sip, "username": usr, "hassh": h, "duration_ms": d, "started_at": st})
+			if replaysRows.Scan(&id, &sip, &usr, &h, &authOK, &cmds, &d, &st) == nil {
+				if cmds == nil {
+					cmds = []string{}
+				}
+				replays = append(replays, map[string]any{
+					"id":             id,
+					"source_ip":      sip,
+					"username":       usr,
+					"hassh":          h,
+					"auth_succeeded": authOK,
+					"commands":       cmds,
+					"duration_ms":    d,
+					"started_at":     st,
+				})
 			}
 		}
 	}

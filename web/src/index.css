@@ -1,6 +1,67 @@
 @import "tailwindcss";
-@import "asciinema-player/dist/bundle/asciinema-player.css";
+@custom-variant dark (&:where(.dark, .dark *));
 
+:root {
+  color-scheme: light;
+  --bg-app: #f4f7fb;
+  --bg-surface: #ffffff;
+  --bg-subtle: #eef3f9;
+  --bg-elevated: #ffffff;
+  --bg-terminal: #0f172a;
+  --border-subtle: #dbe3ef;
+  --border-strong: #c0cede;
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --accent: #2563eb;
+  --accent-soft: #eff6ff;
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+}
+
+html.dark {
+  color-scheme: dark;
+  --bg-app: #09101d;
+  --bg-surface: #111b2e;
+  --bg-subtle: #16233a;
+  --bg-elevated: #1b2a46;
+  --bg-terminal: #060b14;
+  --border-subtle: #243451;
+  --border-strong: #374e77;
+  --text-primary: #f8fafc;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --accent: #3b82f6;
+  --accent-soft: rgb(59 130 246 / 0.16);
+  --shadow-card: 0 1px 3px 0 rgb(2 6 23 / 0.45);
+}
+
+html,
 body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+.hp-surface {
+  background-color: var(--bg-surface);
+  border-color: var(--border-subtle);
+  box-shadow: var(--shadow-card);
+}
+
+.hp-subtle {
+  background-color: var(--bg-subtle);
+  border-color: var(--border-subtle);
+}
+
+.hp-text-muted {
+  color: var(--text-muted);
+}
+
+.hp-text-secondary {
+  color: var(--text-secondary);
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
 }
