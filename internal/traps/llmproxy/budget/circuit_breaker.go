@@ -3,6 +3,7 @@ package budget
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -68,6 +69,7 @@ return {1, nextMicro, "ok"}
 
 // CircuitBreaker enforces atomic spend and abuse bounds in Redis across all Hive workers.
 type CircuitBreaker struct {
+	mu  sync.RWMutex
 	rd  *redis.Client
 	cfg BudgetConfig
 }
@@ -96,17 +98,40 @@ func NewCircuitBreaker(rd *redis.Client, cfg BudgetConfig) *CircuitBreaker {
 	return &CircuitBreaker{rd: rd, cfg: cfg}
 }
 
-// TryAcquire atomically reserves budget strictly for seeded Canary keys eligible for paid upstream calls.
+// MaxDailyUSD returns the configured daily spend cap in USD.
+func (cb *CircuitBreaker) MaxDailyUSD() float64 {
+	if cb == nil {
+		return 0
+	}
+	cb.mu.RLock()
+	defer cb.mu.RUnlock()
+	return cb.cfg.MaxDailyUSD
+}
+
+// SetMaxDailyUSD updates the runtime daily USD spend cap cleanly.
+func (cb *CircuitBreaker) SetMaxDailyUSD(v float64) {
+	if cb == nil {
+		return
+	}
+	if v < 0 {
+		v = 0
+	}
+	cb.mu.Lock()
+	cb.cfg.MaxDailyUSD = v
+	cb.mu.Unlock()
+}
+
+// TryAcquire atomically reserves budget strictly for eligible requests (seeded Canary keys or explicitly opted-in mode).
 func (cb *CircuitBreaker) TryAcquire(ctx context.Context, canaryKeyID, placementSource string, paidEligible bool, sourceIP string) (CircuitDecision, error) {
-	// Critical Invariant (#1 / #10): Unauthenticated requests or /key/generate llm_pool keys NEVER spend paid upstream USD!
+	dailyCap := cb.MaxDailyUSD()
 	if !paidEligible || canaryKeyID == "" || placementSource == "llm_pool" {
 		return CircuitDecision{
 			AllowedPaid:    false,
 			DenialReason:   "canary_not_eligible",
-			DailyBudgetUSD: cb.cfg.MaxDailyUSD,
+			DailyBudgetUSD: dailyCap,
 		}, nil
 	}
-	if cb.cfg.MaxDailyUSD <= 0 {
+	if dailyCap <= 0 {
 		return CircuitDecision{
 			AllowedPaid:    false,
 			DenialReason:   "budget_exceeded",
@@ -114,7 +139,7 @@ func (cb *CircuitBreaker) TryAcquire(ctx context.Context, canaryKeyID, placement
 		}, nil
 	}
 	if cb.rd == nil {
-		return CircuitDecision{AllowedPaid: false, DenialReason: "redis_unavailable", DailyBudgetUSD: cb.cfg.MaxDailyUSD}, nil
+		return CircuitDecision{AllowedPaid: false, DenialReason: "redis_unavailable", DailyBudgetUSD: dailyCap}, nil
 	}
 
 	now := time.Now().UTC()
@@ -126,12 +151,12 @@ func (cb *CircuitBreaker) TryAcquire(ctx context.Context, canaryKeyID, placement
 	rpmKey := fmt.Sprintf("%s:rpm:%s:%d", cb.cfg.KeyPrefix, sourceIP, minBucket)
 
 	costMicro := int64(cb.cfg.EstCostPerCallUSD * 1_000_000)
-	maxMicro := int64(cb.cfg.MaxDailyUSD * 1_000_000)
+	maxMicro := int64(dailyCap * 1_000_000)
 
 	raw, err := circuitReserveLua.Run(ctx, cb.rd, []string{usdKey, tokKey, rpmKey},
 		costMicro, maxMicro, cb.cfg.EstTokensPerCall, cb.cfg.MaxKeyTokensDay, cb.cfg.MaxIPRPM).Result()
 	if err != nil {
-		return CircuitDecision{AllowedPaid: false, DenialReason: "lua_error", DailyBudgetUSD: cb.cfg.MaxDailyUSD}, err
+		return CircuitDecision{AllowedPaid: false, DenialReason: "lua_error", DailyBudgetUSD: dailyCap}, err
 	}
 	slice, ok := raw.([]any)
 	if !ok || len(slice) < 3 {
@@ -145,7 +170,7 @@ func (cb *CircuitBreaker) TryAcquire(ctx context.Context, canaryKeyID, placement
 		AllowedPaid:    allowedNum == 1,
 		DenialReason:   reason,
 		DailySpentUSD:  float64(curMicro) / 1_000_000.0,
-		DailyBudgetUSD: cb.cfg.MaxDailyUSD,
+		DailyBudgetUSD: dailyCap,
 	}, nil
 }
 

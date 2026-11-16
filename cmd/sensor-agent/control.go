@@ -379,6 +379,7 @@ func (c *SensorController) ensureCowrieTailer(parentCtx context.Context, deploym
 	bmPath := filepath.Join(c.stateDir, "traps", deploymentID, "cowrie.bookmark.json")
 	tailer := orchestrator.OpenLogTailer(logPath, bmPath)
 	parser := cowrieparser.NewParser(c.nodeID, listenPort, c.keyPool)
+	parser.SetTrapBaseDir(filepath.Join(c.stateDir, "traps", deploymentID))
 
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)

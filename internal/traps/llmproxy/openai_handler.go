@@ -12,9 +12,14 @@ import (
 func (rt *Router) handleOpenAI(w http.ResponseWriter, r *http.Request) {
 	chameleon.SetOpenAIHeaders(w)
 	p := r.URL.Path
+	auth := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if auth == "" {
+		auth = strings.TrimSpace(r.Header.Get("x-api-key"))
+	}
 
 	switch {
 	case r.Method == http.MethodGet && p == "/v1/models":
+		rt.recordEndpointProbe(r, "openai:models", "LLM-MODELS-ENUM", "Returned decoy OpenAI/Anthropic model list", "", auth)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
@@ -28,6 +33,7 @@ func (rt *Router) handleOpenAI(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case r.Method == http.MethodGet && p == "/v1/dashboard/billing/credit_grants":
+		rt.recordEndpointProbe(r, "openai:billing", "LLM-QUOTA-PROBE", "Returned decoy $2500 OpenAI credit balance", "", auth)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object":          "credit_summary",
@@ -38,7 +44,8 @@ func (rt *Router) handleOpenAI(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case r.Method == http.MethodPost && p == "/v1/embeddings":
-		_ = readLimitedJSONBody(r)
+		embRaw := readLimitedJSONBody(r)
+		rt.recordEndpointProbe(r, "openai:embeddings", "LLM-EMBEDDINGS-PROBE", "Returned synthetic text-embedding-3-large vector", string(embRaw), auth)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"object": "list",
@@ -62,10 +69,6 @@ func (rt *Router) handleOpenAI(w http.ResponseWriter, r *http.Request) {
 		Tools     json.RawMessage `json:"tools"`
 	}
 	_ = json.Unmarshal(raw, &req)
-	auth := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if auth == "" {
-		auth = strings.TrimSpace(r.Header.Get("x-api-key"))
-	}
 	msgs := string(req.Messages)
 	if msgs == "" {
 		msgs = "[]"

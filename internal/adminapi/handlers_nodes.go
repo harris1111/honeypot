@@ -73,7 +73,9 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 	recentSSHSessions := make([]map[string]any, 0)
 	if rows, err := s.pg.Pool.Query(ctx, `
 		SELECT id::text, host(source_ip), username, auth_succeeded, COALESCE(commands, ARRAY[]::TEXT[]), duration_ms, started_at::text
-		FROM ssh_session_replays ORDER BY started_at DESC LIMIT 8
+		FROM ssh_session_replays
+		ORDER BY (cardinality(commands) > 0) DESC, auth_succeeded DESC, started_at DESC
+		LIMIT 8
 	`); err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -98,23 +100,54 @@ func (s *Server) handleOverview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	recentServiceEvents := make([]map[string]any, 0)
+	if rows, err := s.pg.Pool.Query(ctx, `
+		SELECT id::text, host(source_ip), dest_port, protocol, trap_kind, persona, cve_id, http_method, http_path, response_summary, severity_score, observed_at::text
+		FROM telemetry_events
+		WHERE trap_kind <> 'cowrie'
+		ORDER BY observed_at DESC LIMIT 10
+	`); err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var id, sip, proto, tk, pers, cve, meth, hpath, sum, obs string
+			var dport, score int
+			if rows.Scan(&id, &sip, &dport, &proto, &tk, &pers, &cve, &meth, &hpath, &sum, &score, &obs) == nil {
+				recentServiceEvents = append(recentServiceEvents, map[string]any{
+					"id":               id,
+					"source_ip":        sip,
+					"dest_port":        dport,
+					"protocol":         proto,
+					"trap_kind":        tk,
+					"persona":          pers,
+					"cve_id":           cve,
+					"http_method":      meth,
+					"http_path":        hpath,
+					"response_summary": sum,
+					"severity_score":   score,
+					"observed_at":      obs,
+				})
+			}
+		}
+	}
+
 	var spentUSD float64
 	if s.breaker != nil {
 		spentUSD = s.breaker.CurrentDailySpentUSD(ctx)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"events_24h":          totalEvents,
-		"ssh_sessions_24h":    sshSessions24h,
-		"open_incidents":      openIncidents,
-		"pending_triage":      pendingTriage,
-		"malware_count":       malwareCount,
-		"canary_hits":         canaryHits,
-		"llm_spent_usd":       spentUSD,
-		"top_cves":            topCVEs,
-		"events_by_trap":      eventsByTrap,
-		"top_ips":             topIPs,
-		"recent_ssh_sessions": recentSSHSessions,
+		"events_24h":            totalEvents,
+		"ssh_sessions_24h":      sshSessions24h,
+		"open_incidents":        openIncidents,
+		"pending_triage":        pendingTriage,
+		"malware_count":         malwareCount,
+		"canary_hits":           canaryHits,
+		"llm_spent_usd":         spentUSD,
+		"top_cves":              topCVEs,
+		"events_by_trap":        eventsByTrap,
+		"top_ips":               topIPs,
+		"recent_ssh_sessions":   recentSSHSessions,
+		"recent_service_events": recentServiceEvents,
 	})
 }
 

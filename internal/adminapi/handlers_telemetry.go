@@ -89,12 +89,15 @@ func (s *Server) handleGetSSHReplay(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListTelemetry(w http.ResponseWriter, r *http.Request) {
 	trapFilter := strings.TrimSpace(r.URL.Query().Get("trap"))
+	if trapFilter == "all" {
+		trapFilter = ""
+	}
 	rows, err := s.pg.Pool.Query(r.Context(), `
 		SELECT id::text, host(source_ip), dest_port, protocol, trap_kind, persona, cve_id, is_kev,
 		       ja4, hassh, http_method, http_path, raw_payload, response_summary,
 		       greynoise_classification, severity_score, observed_at::text
 		FROM telemetry_events
-		WHERE ($1 = '' OR trap_kind = $1)
+		WHERE ($1 = '' OR ($1 = 'non_ssh' AND trap_kind <> 'cowrie') OR trap_kind = $1)
 		ORDER BY observed_at DESC LIMIT 150
 	`, trapFilter)
 	if err != nil {
@@ -120,7 +123,9 @@ func (s *Server) handleListTelemetry(w http.ResponseWriter, r *http.Request) {
 
 	replaysRows, _ := s.pg.Pool.Query(r.Context(), `
 		SELECT id::text, host(source_ip), username, hassh, auth_succeeded, COALESCE(commands, ARRAY[]::TEXT[]), duration_ms, started_at::text
-		FROM ssh_session_replays ORDER BY started_at DESC LIMIT 40
+		FROM ssh_session_replays
+		ORDER BY (cardinality(commands) > 0) DESC, auth_succeeded DESC, started_at DESC
+		LIMIT 50
 	`)
 	replays := make([]map[string]any, 0)
 	if replaysRows != nil {
@@ -147,5 +152,26 @@ func (s *Server) handleListTelemetry(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"events": events, "replays": replays})
+
+	countsByTrap := make(map[string]int64)
+	if cntRows, cntErr := s.pg.Pool.Query(r.Context(), `
+		SELECT trap_kind, COUNT(*) FROM telemetry_events
+		WHERE observed_at >= NOW() - INTERVAL '24 hours'
+		GROUP BY trap_kind
+	`); cntErr == nil {
+		defer cntRows.Close()
+		for cntRows.Next() {
+			var tk string
+			var cnt int64
+			if cntRows.Scan(&tk, &cnt) == nil {
+				countsByTrap[tk] = cnt
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"events":         events,
+		"replays":        replays,
+		"counts_by_trap": countsByTrap,
+	})
 }

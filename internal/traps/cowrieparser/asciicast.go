@@ -89,9 +89,9 @@ func FormatCommandOutput(username, cmd string) string {
 	if user == "" {
 		user = "root"
 	}
-	prefix := fmt.Sprintf("%s@prod-app-01:~# ", SanitizeTerminalText(user))
+	prefix := fmt.Sprintf("%s@prod-ai-gw-01:~# ", SanitizeTerminalText(user))
 	if user != "root" {
-		prefix = fmt.Sprintf("%s@prod-app-01:~$ ", SanitizeTerminalText(user))
+		prefix = fmt.Sprintf("%s@prod-ai-gw-01:~$ ", SanitizeTerminalText(user))
 	}
 	return prefix + SanitizeTerminalText(cmd) + "\r\n"
 }

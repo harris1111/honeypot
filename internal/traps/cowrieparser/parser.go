@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -52,7 +55,9 @@ type cowrieRawEvent struct {
 	URL             string   `json:"url"`
 	Outfile         string   `json:"outfile"`
 	SHASum          string   `json:"shasum"`
+	TTYLog          string   `json:"ttylog"`
 	Duration        float64  `json:"duration"`
+	DurationMs      int64    `json:"duration_ms"`
 	Message         string   `json:"message"`
 	Sensor          string   `json:"sensor"`
 	Arch            []string `json:"arch"`
@@ -71,6 +76,8 @@ type cowrieSession struct {
 	AuthSucceeded bool
 	Commands      []string
 	Frames        []CastFrame
+	TTYFrames     []CastFrame
+	TTYDurationMs int64
 	StartedAt     time.Time
 	LastSeenAt    time.Time
 }
@@ -80,8 +87,17 @@ type Parser struct {
 	mu          sync.Mutex
 	nodeID      string
 	defaultPort uint32
+	trapBaseDir string
 	keyPool     *canary.SensorKeyPool
 	sessions    map[string]*cowrieSession
+}
+
+// SetTrapBaseDir configures the host deployment directory (e.g. /var/lib/honeypot-sensor/traps/<depID>)
+// so cowrie.log.closed can decode real UML ttylog binary files for terminal replay.
+func (p *Parser) SetTrapBaseDir(dir string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.trapBaseDir = filepath.Clean(dir)
 }
 
 // NewParser creates a stateful Cowrie NDJSON parser for a Sensor node.
@@ -219,15 +235,51 @@ func (p *Parser) ProcessLine(line string) (ParseResult, error) {
 			})
 		}
 
+	case "cowrie.log.closed":
+		if p.trapBaseDir != "" && raw.TTYLog != "" {
+			allowedDir := filepath.Join(p.trapBaseDir, "var", "lib", "cowrie", "tty") + string(os.PathSeparator)
+			fullPath := filepath.Clean(filepath.Join(p.trapBaseDir, filepath.FromSlash(raw.TTYLog)))
+			if strings.HasPrefix(fullPath, allowedDir) {
+				if f, openErr := os.Open(fullPath); openErr == nil {
+					data, readErr := io.ReadAll(io.LimitReader(f, 512*1024))
+					_ = f.Close()
+					if readErr == nil {
+						if frames, parseErr := ParseUMLTTYLog(data, 256*1024); parseErr == nil && len(frames) > 0 {
+							sess.TTYFrames = frames
+						}
+					}
+				}
+			}
+		}
+		if raw.DurationMs > sess.TTYDurationMs {
+			sess.TTYDurationMs = raw.DurationMs
+		}
+
 	case "cowrie.session.closed":
-		durMs := int64(raw.Duration * 1000)
+		durMs := raw.DurationMs
+		if durMs <= 0 && raw.Duration > 0 {
+			durMs = int64(raw.Duration * 1000)
+		}
 		if durMs <= 0 && !sess.LastSeenAt.IsZero() && !sess.StartedAt.IsZero() {
 			durMs = sess.LastSeenAt.Sub(sess.StartedAt).Milliseconds()
+		}
+		if durMs <= 0 {
+			durMs = sess.TTYDurationMs
 		}
 		if durMs < 0 {
 			durMs = 0
 		}
-		cast := BuildAsciicastV2(sess.StartedAt, 100, 30, sess.Frames)
+		frames := sess.Frames
+		if len(sess.TTYFrames) > 0 {
+			merged := make([]CastFrame, 0, len(sess.TTYFrames)+1)
+			merged = append(merged, CastFrame{
+				OffsetSec: 0,
+				Data:      fmt.Sprintf("Connected from %s\r\n", SanitizeTerminalText(sess.SourceIP)),
+			})
+			merged = append(merged, sess.TTYFrames...)
+			frames = merged
+		}
+		cast := BuildAsciicastV2(sess.StartedAt, 100, 30, frames)
 		out.Replay = &honeypotv1.SshSessionReplay{
 			ReplayUuid:    newUUIDv4(),
 			EventUuid:     sess.RootEventUUID,

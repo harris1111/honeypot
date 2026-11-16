@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/harris/honeypot/internal/store"
@@ -20,20 +21,48 @@ import (
 
 // UpstreamConfig configures the single cheap OpenAI-compatible model endpoint used exclusively by Hive.
 type UpstreamConfig struct {
-	BaseURL        string // e.g. https://api.deepseek.com/v1
-	APIKey         string // strictly on Hive, NEVER sent to edge Sensors
-	Model          string // e.g. deepseek-chat or qwen-turbo
-	PricePer1KUSD  float64
+	BaseURL                  string // e.g. https://api.deepseek.com/v1
+	APIKey                   string // strictly on Hive, NEVER sent to edge Sensors
+	Model                    string // e.g. deepseek-chat or qwen-turbo
+	PricePer1KUSD            float64
+	AllowUnauthenticatedChat bool
 }
 
 // HiveRelay implements Hive's RelayLLMStream server-streaming RPC with persona defense,
 // split-token stream scrubbing, Redis caching, and atomic USD budget enforcement.
 type HiveRelay struct {
+	mu       sync.RWMutex
 	pg       *store.Postgres
 	cache    *budget.PromptCache
 	breaker  *budget.CircuitBreaker
 	upstream UpstreamConfig
 	httpCli  *http.Client
+}
+
+// GetConfig returns a snapshot of the active runtime upstream LLM configuration.
+func (h *HiveRelay) GetConfig() UpstreamConfig {
+	if h == nil {
+		return UpstreamConfig{}
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.upstream
+}
+
+// UpdateConfig hot-reloads the upstream LLM URL/key/model and daily budget cap cleanly.
+func (h *HiveRelay) UpdateConfig(cfg UpstreamConfig, maxDailyUSD float64) {
+	if h == nil {
+		return
+	}
+	if cfg.PricePer1KUSD <= 0 {
+		cfg.PricePer1KUSD = 0.0005
+	}
+	h.mu.Lock()
+	h.upstream = cfg
+	h.mu.Unlock()
+	if h.breaker != nil {
+		h.breaker.SetMaxDailyUSD(maxDailyUSD)
+	}
 }
 
 // NewHiveRelay constructs a Hive-side Chameleon LLM relay engine.
@@ -100,12 +129,21 @@ func (h *HiveRelay) HandleRelayStream(req *honeypotv1.RelayLLMRequest, stream ho
 		}
 	}
 
-	// Gate paid upstream spend STRICTLY to verified seeded Canary keys (never /key/generate llm_pool or unauth)
+	// Gate paid upstream spend strictly to verified seeded Canary keys OR explicit AllowUnauthenticatedChat opt-in
+	upCfg := h.GetConfig()
 	paidAllowed := false
 	degradeMode := "slow_tarpit"
 	var denialReason string
+	budgetKeyID := canaryRec.ID
+	budgetSource := canaryRec.PlacementSource
+	eligible := hasCanary && canaryRec.PaidUpstreamEligible
+	if !hasCanary && upCfg.AllowUnauthenticatedChat && strings.TrimSpace(upCfg.BaseURL) != "" && strings.TrimSpace(upCfg.APIKey) != "" {
+		eligible = true
+		budgetKeyID = "unauth-ip:" + req.GetSourceIp()
+		budgetSource = "unauth_optin"
+	}
 	if h.breaker != nil {
-		dec, err := h.breaker.TryAcquire(ctx, canaryRec.ID, canaryRec.PlacementSource, hasCanary && canaryRec.PaidUpstreamEligible, req.GetSourceIp())
+		dec, err := h.breaker.TryAcquire(ctx, budgetKeyID, budgetSource, eligible, req.GetSourceIp())
 		if err == nil && dec.AllowedPaid {
 			paidAllowed = true
 			degradeMode = "none"
@@ -114,9 +152,9 @@ func (h *HiveRelay) HandleRelayStream(req *honeypotv1.RelayLLMRequest, stream ho
 		}
 	}
 
-	if !paidAllowed || strings.TrimSpace(h.upstream.BaseURL) == "" || strings.TrimSpace(h.upstream.APIKey) == "" {
+	if !paidAllowed || strings.TrimSpace(upCfg.BaseURL) == "" || strings.TrimSpace(upCfg.APIKey) == "" {
 		// Unauthenticated Ollama or /key/generate pool keys stay $0 with synthetic template or Slow SSE Tarpit
-		if denialReason == "canary_not_eligible" || (!paidAllowed && h.upstream.BaseURL == "") {
+		if denialReason == "canary_not_eligible" || (!paidAllowed && strings.TrimSpace(upCfg.BaseURL) == "") {
 			synthetic := buildZeroCostDeceptionReply(persona, req.GetMessagesJson())
 			_ = stream.Send(&honeypotv1.RelayLLMChunk{
 				Directive:       honeypotv1.RelayLLMChunk_DIRECTIVE_CACHED,
@@ -145,7 +183,7 @@ func (h *HiveRelay) HandleRelayStream(req *honeypotv1.RelayLLMRequest, stream ho
 
 	// Forward over cheap upstream OpenAI-compatible endpoint with persona system prompt + stream sanitizer
 	maxTok := chameleon.ClampMaxTokens(int(req.GetRequestedMaxTokens()), persona.MaxTokensCap)
-	fullResp, tokIn, tokOut, err := h.callAndSanitizeUpstream(ctx, persona, maxTok, req.GetMessagesJson(), canaryRec.ID, stream)
+	fullResp, tokIn, tokOut, err := h.callAndSanitizeUpstream(ctx, upCfg, persona, maxTok, req.GetMessagesJson(), canaryRec.ID, stream)
 	if err != nil {
 		// Seamless failover to $0 tarpit so attacker never sees backend proxy errors
 		_ = stream.Send(&honeypotv1.RelayLLMChunk{
@@ -159,7 +197,7 @@ func (h *HiveRelay) HandleRelayStream(req *honeypotv1.RelayLLMRequest, stream ho
 		return nil
 	}
 
-	costUSD := float64(tokIn+tokOut) / 1000.0 * h.upstream.PricePer1KUSD
+	costUSD := float64(tokIn+tokOut) / 1000.0 * upCfg.PricePer1KUSD
 	if h.breaker != nil {
 		h.breaker.ReconcileActualCost(ctx, time.Now().UTC().Format("2006-01-02"), costUSD)
 	}
@@ -174,8 +212,67 @@ func (h *HiveRelay) HandleRelayStream(req *honeypotv1.RelayLLMRequest, stream ho
 	return nil
 }
 
+// TestConnection tests either the configured upstream OpenAI-compatible provider or built-in $0 responder.
+func (h *HiveRelay) TestConnection(ctx context.Context, prompt string) (mode, model, reply string, latencyMs int64, err error) {
+	if strings.TrimSpace(prompt) == "" {
+		prompt = "Say OK and report what internal service you provide."
+	}
+	start := time.Now()
+	upCfg := h.GetConfig()
+	if strings.TrimSpace(upCfg.BaseURL) == "" || strings.TrimSpace(upCfg.APIKey) == "" {
+		p := chameleon.ResolvePersona(nil, "openai", "gpt-4o")
+		wrapped, _ := json.Marshal([]map[string]string{{"role": "user", "content": prompt}})
+		return "builtin_free", "chameleon-zero-cost", buildZeroCostDeceptionReply(p, string(wrapped)), time.Since(start).Milliseconds(), nil
+	}
+
+	modelName := strings.TrimSpace(upCfg.Model)
+	if modelName == "" {
+		modelName = "gpt-4o-mini"
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"model": modelName,
+		"messages": []map[string]string{
+			{"role": "system", "content": "Reply in one short sentence confirming this internal AI gateway node is online."},
+			{"role": "user", "content": prompt},
+		},
+		"max_tokens": 96,
+		"stream":     false,
+	})
+	tCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(tCtx, http.MethodPost, strings.TrimRight(upCfg.BaseURL, "/")+"/chat/completions", bytes.NewReader(payload))
+	if err != nil {
+		return "live_upstream", modelName, "", time.Since(start).Milliseconds(), err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+upCfg.APIKey)
+
+	resp, err := h.httpCli.Do(req)
+	if err != nil {
+		return "live_upstream", modelName, "", time.Since(start).Milliseconds(), err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256*1024))
+	if resp.StatusCode >= 400 {
+		return "live_upstream", modelName, "", time.Since(start).Milliseconds(), fmt.Errorf("upstream status %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	var parsed struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil || len(parsed.Choices) == 0 {
+		return "live_upstream", modelName, "", time.Since(start).Milliseconds(), fmt.Errorf("unexpected response from upstream")
+	}
+	return "live_upstream", modelName, strings.TrimSpace(parsed.Choices[0].Message.Content), time.Since(start).Milliseconds(), nil
+}
+
 func (h *HiveRelay) callAndSanitizeUpstream(
 	ctx context.Context,
+	upCfg UpstreamConfig,
 	persona chameleon.ResolvedPersona,
 	maxTokens int,
 	messagesJSON, canaryID string,
@@ -193,7 +290,7 @@ func (h *HiveRelay) callAndSanitizeUpstream(
 		combined = append(combined, m)
 	}
 
-	modelName := h.upstream.Model
+	modelName := strings.TrimSpace(upCfg.Model)
 	if modelName == "" {
 		modelName = "gpt-4o-mini"
 	}
@@ -204,12 +301,12 @@ func (h *HiveRelay) callAndSanitizeUpstream(
 		"stream":     true,
 	})
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(h.upstream.BaseURL, "/")+"/chat/completions", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(upCfg.BaseURL, "/")+"/chat/completions", bytes.NewReader(payload))
 	if err != nil {
 		return "", 0, 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+h.upstream.APIKey)
+	req.Header.Set("Authorization", "Bearer "+upCfg.APIKey)
 
 	resp, err := h.httpCli.Do(req)
 	if err != nil {

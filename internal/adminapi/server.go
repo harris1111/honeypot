@@ -23,6 +23,7 @@ import (
 	"github.com/harris/honeypot/internal/malware"
 	"github.com/harris/honeypot/internal/pki"
 	"github.com/harris/honeypot/internal/store"
+	"github.com/harris/honeypot/internal/traps/llmproxy"
 	"github.com/harris/honeypot/internal/traps/llmproxy/budget"
 	"github.com/redis/go-redis/v9"
 )
@@ -50,6 +51,7 @@ type Server struct {
 	canary   *canary.Signer
 	vault    *malware.Vault
 	breaker  *budget.CircuitBreaker
+	llmRelay *llmproxy.HiveRelay
 	auth     *AuthManager
 	wsHub    *WSHub
 	allowed  []netip.Prefix
@@ -149,6 +151,37 @@ func NewServer(
 	return s, nil
 }
 
+// SetLLMRelay wires the live HiveRelay instance and restores any persisted runtime LLM settings from Postgres.
+func (s *Server) SetLLMRelay(ctx context.Context, r *llmproxy.HiveRelay) {
+	s.llmRelay = r
+	if s.llmRelay == nil || s.pg == nil {
+		return
+	}
+	var baseURL, model string
+	var encKey []byte
+	var maxDaily float64
+	var allowUnauth bool
+	err := s.pg.Pool.QueryRow(ctx, `
+		SELECT base_url, api_key_enc, model, max_daily_usd::float8, allow_unauthenticated_chat
+		FROM llm_runtime_settings WHERE id = 1
+	`).Scan(&baseURL, &encKey, &model, &maxDaily, &allowUnauth)
+	if err != nil {
+		return
+	}
+	var apiKey string
+	if len(encKey) > 0 {
+		if plain, decErr := s.auth.decryptBytes(encKey); decErr == nil {
+			apiKey = string(plain)
+		}
+	}
+	s.llmRelay.UpdateConfig(llmproxy.UpstreamConfig{
+		BaseURL:                  strings.TrimSpace(baseURL),
+		APIKey:                   strings.TrimSpace(apiKey),
+		Model:                    strings.TrimSpace(model),
+		AllowUnauthenticatedChat: allowUnauth,
+	}, maxDaily)
+}
+
 // StartBackgroundWorkers launches the WebSocket live feed Redis subscriber loop.
 func (s *Server) StartBackgroundWorkers(ctx context.Context) {
 	go s.wsHub.Run(ctx)
@@ -210,6 +243,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/admin/llm/personas", s.withAuth(s.handleListPersonas))
 	s.mux.HandleFunc("PUT /api/admin/llm/personas", s.withAuth(s.handleUpsertPersona))
 	s.mux.HandleFunc("GET /api/admin/llm/budget", s.withAuth(s.handleLLMBudget))
+	s.mux.HandleFunc("GET /api/admin/llm/settings", s.withAuth(s.handleGetLLMSettings))
+	s.mux.HandleFunc("PUT /api/admin/llm/settings", s.withAuth(s.handleUpdateLLMSettings))
+	s.mux.HandleFunc("POST /api/admin/llm/test", s.withAuth(s.handleTestLLMSettings))
 
 	// Canary Key Factory
 	s.mux.HandleFunc("GET /api/admin/canaries", s.withAuth(s.handleListCanaries))

@@ -1,7 +1,10 @@
 package cowrieparser
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -90,5 +93,67 @@ func TestCowrieParserSessionReplayAndDownloadExtraction(t *testing.T) {
 	}
 	if p.ActiveSessions() != 0 {
 		t.Fatalf("expected closed session evicted, active=%d", p.ActiveSessions())
+	}
+}
+
+func appendUMLFrame(buf []byte, op, dir int32, sec, usec uint32, payload string) []byte {
+	hdr := make([]byte, 24)
+	binary.LittleEndian.PutUint32(hdr[0:4], uint32(op))
+	binary.LittleEndian.PutUint32(hdr[4:8], 0)
+	binary.LittleEndian.PutUint32(hdr[8:12], uint32(len(payload)))
+	binary.LittleEndian.PutUint32(hdr[12:16], uint32(dir))
+	binary.LittleEndian.PutUint32(hdr[16:20], sec)
+	binary.LittleEndian.PutUint32(hdr[20:24], usec)
+	buf = append(buf, hdr...)
+	return append(buf, payload...)
+}
+
+func TestParseUMLTTYLogAndLogClosedReplay(t *testing.T) {
+	baseDir := t.TempDir()
+	ttyDir := filepath.Join(baseDir, "var", "lib", "cowrie", "tty")
+	if err := os.MkdirAll(ttyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var uml []byte
+	uml = appendUMLFrame(uml, 3, 2, 1794846622, 10000, "root@prod-ai-gw-01:~# nvidia-smi\n")
+	uml = appendUMLFrame(uml, 3, 1, 1794846622, 15000, "ignored-input")
+	uml = appendUMLFrame(uml, 3, 2, 1794846623, 50000, "| NVIDIA A10G |\n")
+	ttyFile := filepath.Join(ttyDir, "abc123")
+	if err := os.WriteFile(ttyFile, uml, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewParser("node-tty", 22, nil)
+	p.SetTrapBaseDir(baseDir)
+
+	lines := []string{
+		`{"eventid":"cowrie.session.connect","timestamp":"2026-11-16T10:00:00Z","session":"s-tty","src_ip":"198.51.100.8","dst_port":2222,"protocol":"ssh"}`,
+		`{"eventid":"cowrie.login.success","timestamp":"2026-11-16T10:00:01Z","session":"s-tty","src_ip":"198.51.100.8","username":"root","password":"x"}`,
+		`{"eventid":"cowrie.command.input","timestamp":"2026-11-16T10:00:02Z","session":"s-tty","src_ip":"198.51.100.8","input":"nvidia-smi"}`,
+		`{"eventid":"cowrie.log.closed","timestamp":"2026-11-16T10:00:03Z","session":"s-tty","ttylog":"var/lib/cowrie/tty/abc123","duration_ms":2100}`,
+		`{"eventid":"cowrie.session.closed","timestamp":"2026-11-16T10:00:03.1Z","session":"s-tty","duration_ms":3100}`,
+	}
+	var replay *honeypotv1.SshSessionReplay
+	for _, ln := range lines {
+		res, err := p.ProcessLine(ln)
+		if err != nil {
+			t.Fatalf("ProcessLine failed: %v", err)
+		}
+		if res.Replay != nil {
+			replay = res.Replay
+		}
+	}
+	if replay == nil {
+		t.Fatal("expected SshSessionReplay")
+	}
+	if !strings.Contains(replay.AsciicastV2, "NVIDIA A10G") {
+		t.Fatalf("expected real UML TTY output in asciicast_v2, got %q", replay.AsciicastV2)
+	}
+	if strings.Contains(replay.AsciicastV2, "ignored-input") {
+		t.Fatalf("expected dir=1 raw input excluded when output echo exists")
+	}
+	if replay.DurationMs != 3100 {
+		t.Fatalf("expected duration_ms=3100, got %d", replay.DurationMs)
 	}
 }

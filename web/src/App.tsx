@@ -3,6 +3,7 @@ import {
   Activity,
   Biohazard,
   Bot,
+  HelpCircle,
   KeyRound,
   LogOut,
   Menu,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react";
 import { apiFetch, setCSRFToken, type AuthStatus, type LiveEventTick } from "./lib/api";
 import { Badge, Button, Card, CopyButton, Input } from "./components/ui/primitives";
+import { TerminalReplayModal } from "./components/TerminalReplayModal";
+import { QuickGuideModal } from "./components/QuickGuideModal";
 import { OverviewPage } from "./pages/OverviewPage";
 import { NodesContainersPage } from "./pages/NodesContainersPage";
 import { IncidentsExplorerPage } from "./pages/IncidentsExplorerPage";
@@ -153,7 +156,12 @@ export default function App() {
   const [theme, setTheme] = useState<ThemeMode>(() => getInitialTheme());
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [tab, setTab] = useState<NavTab>("Overview");
-  const [selectedReplayId, setSelectedReplayId] = useState<string>("");
+  const [trapFilterSelection, setTrapFilterSelection] = useState<{ trap: string; nonce: number }>({
+    trap: "all",
+    nonce: 0,
+  });
+  const [activeReplayModalId, setActiveReplayModalId] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
   const [liveEvents, setLiveEvents] = useState<LiveEventTick[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -256,7 +264,11 @@ export default function App() {
   );
 
   const openReplay = (replayId: string) => {
-    setSelectedReplayId(replayId);
+    setActiveReplayModalId(replayId);
+  };
+
+  const openTrapLogs = (trapKind: string) => {
+    setTrapFilterSelection((prev) => ({ trap: trapKind || "all", nonce: prev.nonce + 1 }));
     setTab("Incidents & Replays");
   };
 
@@ -460,6 +472,15 @@ export default function App() {
               type="button"
               variant="secondary"
               className="px-2.5 py-1.5 text-xs"
+              onClick={() => setGuideOpen(true)}
+            >
+              <HelpCircle className="h-3.5 w-3.5" />
+              Hướng dẫn
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="px-2.5 py-1.5 text-xs"
               onClick={() => setTickerOpen((v) => !v)}
             >
               Feed ({liveEvents.length})
@@ -516,10 +537,16 @@ export default function App() {
               liveEvents={liveEvents}
               onNavigate={setTab}
               onOpenReplay={openReplay}
+              onOpenTrapLogs={openTrapLogs}
             />
           )}
           {tab === "Incidents & Replays" && (
-            <IncidentsExplorerPage key={`inc-${refreshNonce}`} initialReplayId={selectedReplayId} />
+            <IncidentsExplorerPage
+              key={`inc-${refreshNonce}`}
+              initialTrapFilter={trapFilterSelection.trap}
+              trapFilterNonce={trapFilterSelection.nonce}
+              onOpenReplay={openReplay}
+            />
           )}
           {tab === "Nodes & Traps" && <NodesContainersPage key={`nodes-${refreshNonce}`} />}
           {tab === "Canary Factory" && <CanaryFactoryPage key={`canary-${refreshNonce}`} />}
@@ -528,6 +555,17 @@ export default function App() {
           {tab === "Malware Vault" && <MalwareVaultPage key={`malware-${refreshNonce}`} />}
         </main>
       </div>
+
+      {activeReplayModalId && (
+        <TerminalReplayModal replayId={activeReplayModalId} onClose={() => setActiveReplayModalId(null)} />
+      )}
+      {guideOpen && (
+        <QuickGuideModal
+          onClose={() => setGuideOpen(false)}
+          onNavigate={setTab}
+          onOpenTrapLogs={openTrapLogs}
+        />
+      )}
     </div>
   );
 }

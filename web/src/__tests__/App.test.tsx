@@ -78,6 +78,36 @@ describe("Hive Admin Console UI & XSS Safety", () => {
               started_at: "2026-11-16T10:00:00Z",
             },
           ],
+          recent_service_events: [
+            {
+              id: "svc-1",
+              source_ip: "203.0.113.5",
+              dest_port: 11434,
+              protocol: "http",
+              trap_kind: "llmproxy",
+              persona: "ollama:tags",
+              cve_id: "OLLAMA-MODEL-ENUM",
+              http_method: "GET",
+              http_path: "/api/tags",
+              response_summary: "Returned decoy Ollama models",
+              severity_score: 45,
+              observed_at: "2026-11-16T10:05:00Z",
+            },
+          ],
+        });
+      }
+      if (url.includes("/api/admin/replays/r1")) {
+        return mockJsonResponse({
+          id: "r1",
+          source_ip: "198.51.100.77",
+          hassh: "abc123",
+          username: "root",
+          auth_succeeded: true,
+          commands: ["uname -a", "nvidia-smi"],
+          asciicast_v2:
+            '{"version":2,"width":100,"height":30,"timestamp":1794846622}\n[0,"o","root@prod-ai-gw-01:~# uname -a\\r\\n"]\n[0.4,"o","Linux prod-ai-gw-01\\r\\n"]\n',
+          duration_ms: 1400,
+          started_at: "2026-11-16T10:00:00Z",
         });
       }
       if (url.includes("/api/admin/nodes")) return mockJsonResponse({ nodes: [] });
@@ -111,11 +141,24 @@ describe("Hive Admin Console UI & XSS Safety", () => {
             },
           ],
           replays: [],
+          counts_by_trap: { cowrie: 28, llmproxy: 4, webcve: 14 },
         });
       }
       if (url.includes("/api/admin/llm/conversations")) return mockJsonResponse({ conversations: [] });
       if (url.includes("/api/admin/llm/personas")) return mockJsonResponse({ personas: [] });
-      if (url.includes("/api/admin/llm/budget")) return mockJsonResponse({ spent_today_usd: 0, cap_usd: 5 });
+      if (url.includes("/api/admin/llm/budget")) return mockJsonResponse({ spent_today_usd: 0, cap_usd: 0 });
+      if (url.includes("/api/admin/llm/settings")) {
+        return mockJsonResponse({
+          base_url: "",
+          model: "deepseek-chat",
+          has_api_key: false,
+          api_key_masked: "",
+          max_daily_usd: 0,
+          allow_unauthenticated_chat: false,
+          spent_today_usd: 0,
+          active_mode: "builtin_free",
+        });
+      }
       if (url.includes("/api/admin/canaries")) return mockJsonResponse({ canaries: [] });
       if (url.includes("/api/admin/malware")) {
         return mockJsonResponse({
@@ -140,12 +183,20 @@ describe("Hive Admin Console UI & XSS Safety", () => {
     });
   }
 
-  it("renders navigation, escapes attacker payloads without XSS, and toggles Light/Dark theme", async () => {
+  it("renders navigation, opens native SSH terminal replay, configures LLM, escapes XSS, and toggles Light/Dark theme", async () => {
     installAuthenticatedFetchMock();
     render(<App />);
 
     await waitFor(() => expect(screen.getByText("DECEPTION HIVE")).toBeInTheDocument());
     await waitFor(() => expect(screen.getByText(/uname -a/)).toBeInTheDocument());
+    expect(screen.getByText(/OLLAMA-MODEL-ENUM/)).toBeInTheDocument();
+
+    // Open Watch Replay modal
+    fireEvent.click(screen.getByText("Watch Replay"));
+    await waitFor(() => expect(screen.getByTestId("terminal-replay-modal")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/SSH \/ Telnet Terminal Replay/)).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Close"));
+    await waitFor(() => expect(screen.queryByTestId("terminal-replay-modal")).toBeNull());
 
     // Light / Dark theme toggle
     const toggleBtn = screen.getByTestId("theme-toggle");
@@ -169,6 +220,8 @@ describe("Hive Admin Console UI & XSS Safety", () => {
 
     fireEvent.click(screen.getByText("LLM Spy & Studio"));
     await waitFor(() => expect(screen.getByText(/Chameleon Persona Studio/)).toBeInTheDocument());
+    expect(screen.getByText("Upstream LLM Provider Configuration")).toBeInTheDocument();
+    expect(screen.getByText("DeepSeek")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("Canary Factory"));
     await waitFor(() => expect(screen.getByText(/Mint Signed Traceable Canary Keys/)).toBeInTheDocument());

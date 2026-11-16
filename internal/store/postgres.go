@@ -445,7 +445,7 @@ func (p *Postgres) InsertEventsBatch(ctx context.Context, nodeID string, req *ho
 			id := ev.GetCanaryKeyId()
 			canaryPtr = &id
 		}
-		_, execErr := tx.Exec(ctx, `
+		tag, execErr := tx.Exec(ctx, `
 			INSERT INTO telemetry_events (
 				id, node_id, source_ip, source_port, dest_port, protocol, trap_kind,
 				persona, cve_id, is_kev, ja4, ja4h, hassh, http_method, http_host, http_path,
@@ -465,6 +465,15 @@ func (p *Postgres) InsertEventsBatch(ctx context.Context, nodeID string, req *ho
 			int16(ev.GetSeverityScore()), observed)
 		if execErr != nil {
 			return nil, nil, execErr
+		}
+		if canaryPtr != nil && tag.RowsAffected() > 0 {
+			_, _ = tx.Exec(ctx, `
+				UPDATE canary_keys
+				SET hit_count = hit_count + 1,
+				    first_hit_at = COALESCE(first_hit_at, NOW()),
+				    last_hit_at = NOW()
+				WHERE id = $1::uuid
+			`, *canaryPtr)
 		}
 		acked = append(acked, ev.GetEventUuid())
 	}

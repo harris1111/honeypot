@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -91,13 +92,57 @@ func (rt *Router) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rt.handleAnthropicMessages(w, r)
 	case strings.HasPrefix(p, "/v1/"):
 		rt.handleOpenAI(w, r)
-	case strings.HasPrefix(p, "/api/tags") || strings.HasPrefix(p, "/api/chat") || strings.HasPrefix(p, "/api/generate") || strings.HasPrefix(p, "/ollama/"):
+	case p == "/" && portFromReq(r) == 11434:
+		rt.recordEndpointProbe(r, "ollama:runtime", "OLLAMA-OPEN-API", "Ollama root banner served", "", "")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = w.Write([]byte("Ollama is running"))
+		return
+	case p == "/api/version" || p == "/ollama/api/version":
+		rt.recordEndpointProbe(r, "ollama:version", "OLLAMA-VERSION-PROBE", "Returned decoy Ollama version 0.5.7", "", "")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"version":"0.5.7"}`))
+		return
+	case strings.HasPrefix(p, "/api/tags") || strings.HasPrefix(p, "/api/ps") || strings.HasPrefix(p, "/api/chat") || strings.HasPrefix(p, "/api/generate") || strings.HasPrefix(p, "/ollama/"):
 		rt.handleOllama(w, r)
 	case p == "/" || strings.HasPrefix(p, "/ui"):
 		rt.handleLiteLLMUI(w, r)
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+func (rt *Router) recordEndpointProbe(r *http.Request, persona, cveTag, summary, payload, authToken string) {
+	if rt.sp == nil {
+		return
+	}
+	canaryID := ""
+	score := int32(45)
+	if strings.TrimSpace(authToken) != "" && rt.keyPool != nil {
+		if s, ok := rt.keyPool.LookupToken(authToken); ok {
+			canaryID = s.GetCanaryKeyId()
+			score = 95
+		}
+	}
+	_ = rt.sp.EnqueueEvent(&honeypotv1.TelemetryEvent{
+		EventUuid:       newLLMUUID(),
+		NodeId:          rt.nodeID,
+		SourceIp:        clientIPFromReq(r),
+		DestPort:        portFromReq(r),
+		Protocol:        protoFromReq(r),
+		TrapKind:        "llmproxy",
+		Persona:         persona,
+		CveId:           cveTag,
+		Ja4:             netwrap.JA4FromContext(r.Context()),
+		Ja4H:            netwrap.ComputeJA4H(r),
+		HttpMethod:      r.Method,
+		HttpHost:        r.Host,
+		HttpPath:        r.RequestURI,
+		RawPayload:      truncateStr(payload, 4096),
+		ResponseSummary: summary,
+		CanaryKeyId:     canaryID,
+		SeverityScore:   score,
+		ObservedAt:      timestamppb.Now(),
+	})
 }
 
 func (rt *Router) relayAndServe(
@@ -343,6 +388,18 @@ func clientIPFromReq(r *http.Request) string {
 }
 
 func portFromReq(r *http.Request) uint32 {
+	if la, ok := r.Context().Value(http.LocalAddrContextKey).(net.Addr); ok && la != nil {
+		if _, portStr, err := net.SplitHostPort(la.String()); err == nil {
+			if p, err := strconv.Atoi(portStr); err == nil && p > 0 && p <= 65535 {
+				return uint32(p)
+			}
+		}
+	}
+	if _, portStr, err := net.SplitHostPort(r.Host); err == nil {
+		if p, err := strconv.Atoi(portStr); err == nil && p > 0 && p <= 65535 {
+			return uint32(p)
+		}
+	}
 	if r.TLS != nil {
 		return 443
 	}

@@ -259,6 +259,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("init admin console server: %v", err)
 	}
+	adminAPI.SetLLMRelay(ctx, llmRelay)
 	adminAPI.StartBackgroundWorkers(ctx)
 
 	adminSrv := &http.Server{
