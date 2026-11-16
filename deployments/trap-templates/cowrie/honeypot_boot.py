@@ -30,6 +30,103 @@ HONEYFS_DIR = "/cowrie/cowrie-git/honeyfs"
 TXTCMDS_DIR = "/cowrie/cowrie-git/txtcmds"
 MERGED_PICKLE_PATH = "/tmp/merged-fs.pickle"
 
+# Minimal valid ELF64 LSB x86-64 magic header so `file`, `hexdump`, and `/proc/self/exe` checks look authentic.
+ELF64_STUB = b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 8 + b"\x03\x00\x3e\x00\x01\x00\x00\x00" + b"\x00" * 40
+
+REALISTIC_BINARIES: list[tuple[str, int]] = [
+    ("bin/bash", 1396520),
+    ("usr/bin/bash", 1396520),
+    ("bin/sh", 125688),
+    ("bin/busybox", 2148912),
+    ("bin/df", 96448),
+    ("usr/bin/df", 96448),
+    ("bin/lsblk", 174208),
+    ("usr/bin/lsblk", 174208),
+    ("bin/readlink", 51848),
+    ("usr/bin/readlink", 51848),
+    ("bin/sort", 118424),
+    ("usr/bin/sort", 118424),
+    ("sbin/ip", 642880),
+    ("usr/sbin/ip", 642880),
+    ("bin/ip", 642880),
+    ("usr/bin/ip", 642880),
+    ("sbin/sysctl", 43816),
+    ("usr/sbin/sysctl", 43816),
+    ("usr/sbin/dmidecode", 114624),
+    ("sbin/lsmod", 55416),
+    ("usr/sbin/lsmod", 55416),
+    ("usr/local/bin/ollama", 28419200),
+    ("usr/local/bin/litellm", 8420),
+    ("opt/venv/bin/litellm", 8420),
+    ("opt/venv/bin/python3", 5948216),
+    ("opt/venv/bin/pip", 1240),
+    ("usr/bin/python3", 5948216),
+    ("usr/bin/python3.11", 5948216),
+    ("usr/bin/pip", 1240),
+    ("usr/bin/pip3", 1240),
+    ("usr/bin/nvidia-smi", 984128),
+    ("usr/bin/nvcc", 14289100),
+    ("usr/local/cuda/bin/nvcc", 14289100),
+    ("usr/bin/docker", 54120800),
+    ("usr/bin/docker-compose", 48210400),
+    ("usr/local/bin/docker-compose", 48210400),
+    ("usr/bin/kubectl", 57492100),
+    ("usr/bin/aws", 64812900),
+    ("usr/local/bin/aws", 64812900),
+    ("usr/bin/jq", 294812),
+    ("usr/bin/curl", 284920),
+    ("usr/bin/systemctl", 312840),
+    ("usr/bin/journalctl", 264120),
+    ("usr/bin/ss", 168420),
+    ("usr/bin/netstat", 158420),
+    ("usr/bin/lsof", 184290),
+    ("usr/bin/node", 98421000),
+    ("usr/bin/npm", 4820),
+    ("usr/bin/psql", 684120),
+    ("usr/bin/redis-cli", 428912),
+    ("usr/bin/mysql", 7128400),
+    ("usr/bin/free", 48120),
+    ("usr/bin/lscpu", 98412),
+    ("usr/bin/lspci", 84210),
+    ("usr/bin/nproc", 43616),
+    ("usr/bin/arch", 43616),
+    ("usr/bin/hostnamectl", 88420),
+    ("usr/bin/lsb_release", 16420),
+    ("usr/bin/top", 128420),
+    ("usr/bin/vmstat", 51420),
+    ("bin/dmesg", 98420),
+    ("usr/bin/dmesg", 98420),
+    ("usr/bin/timedatectl", 78420),
+    ("usr/bin/realpath", 51848),
+    ("usr/bin/basename", 43616),
+    ("usr/bin/dirname", 43616),
+    ("usr/bin/stat", 84210),
+    ("usr/bin/file", 39840),
+    ("usr/bin/md5sum", 55416),
+    ("usr/bin/sha256sum", 55416),
+    ("usr/bin/id", 47840),
+    ("usr/bin/w", 35416),
+    ("usr/bin/who", 55416),
+    ("usr/bin/uptime", 26416),
+    ("usr/bin/lockr", 18420),
+    ("bin/lockr", 18420),
+    ("usr/bin/chattr", 22416),
+    ("bin/chattr", 22416),
+]
+
+WRITABLE_BOT_DIRS: list[tuple[str, int]] = [
+    ("boot", 0o040755),
+    ("mnt", 0o040755),
+    ("data", 0o040755),
+    ("dev/shm", 0o041777),
+    ("var/tmp", 0o041777),
+    ("var/run", 0o040755),
+    ("opt/venv/bin", 0o040755),
+    ("usr/local/bin", 0o040755),
+    ("usr/local/cuda/bin", 0o040755),
+    ("usr/share/ollama", 0o040755),
+]
+
 
 def _load_base_tree() -> list[Any]:
     with open_data_binary("fs.pickle") as f:
@@ -166,8 +263,41 @@ def _walk_and_merge(tree: list[Any], root_dir: str, default_mode: int) -> None:
             _upsert_file(tree, relpath, raw, mode, full_path, uid=uid, gid=gid)
 
 
+def _seed_binaries_and_dirs(tree: list[Any]) -> None:
+    now = int(time.time())
+    for rel_dir, dmode in WRITABLE_BOT_DIRS:
+        node = _ensure_dir(tree, [p for p in rel_dir.split("/") if p], now)
+        node[A_MODE] = dmode
+
+    for relpath, fsize in REALISTIC_BINARIES:
+        parts = [p for p in relpath.split("/") if p]
+        parent = _ensure_dir(tree, parts[:-1], now)
+        children: list[Any] = parent[A_CONTENTS]
+        name = parts[-1]
+        existing = next((c for c in children if c[A_NAME] == name), None)
+        if existing is not None:
+            if existing[A_TYPE] == T_FILE:
+                if not existing[A_CONTENTS]:
+                    existing[A_CONTENTS] = ELF64_STUB
+                existing[A_SIZE] = fsize
+                existing[A_MODE] = stat.S_IFREG | 0o755
+            continue
+        children.append(
+            [name, T_FILE, 0, 0, fsize, stat.S_IFREG | 0o755, now, ELF64_STUB, None, None]
+        )
+
+    # Ensure /proc/self/exe resolves cleanly like Linux kernel symlink -> /usr/bin/bash
+    proc_self = _ensure_dir(tree, ["proc", "self"], now)
+    ps_children: list[Any] = proc_self[A_CONTENTS]
+    if not any(c[A_NAME] == "exe" for c in ps_children):
+        ps_children.append(
+            ["exe", T_LINK, 0, 0, 13, stat.S_IFLNK | 0o777, now, b"", "/usr/bin/bash", None]
+        )
+
+
 def main() -> None:
     tree = _load_base_tree()
+    _seed_binaries_and_dirs(tree)
     _walk_and_merge(tree, HONEYFS_DIR, 0o644)
     _walk_and_merge(tree, TXTCMDS_DIR, 0o755)
     tmp_out = MERGED_PICKLE_PATH + ".tmp"

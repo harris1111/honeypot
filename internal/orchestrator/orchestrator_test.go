@@ -113,6 +113,17 @@ func TestSeedCowrieAndDockerManager(t *testing.T) {
 	if !strings.Contains(string(envBytes), "sk-proj-honeyfskey1234567890") || !strings.Contains(string(envBytes), "sk-ant-api03-honeyfskey123456") {
 		t.Fatalf("canary keys missing in seeded honeyfs .env: %s", string(envBytes))
 	}
+	cpuBytes, err := os.ReadFile(filepath.Join(trapsRoot, "dep-1", "honeyfs", "proc", "cpuinfo"))
+	if err != nil || !strings.Contains(string(cpuBytes), "processor\t: 7") {
+		t.Fatalf("expected 8-core /proc/cpuinfo in seeded honeyfs, err=%v", err)
+	}
+	cfgBytes, err := os.ReadFile(filepath.Join(trapsRoot, "dep-1", "etc", "cowrie.cfg"))
+	if err != nil || !strings.Contains(string(cfgBytes), "kernel_version = 6.1.0-28-cloud-amd64") {
+		t.Fatalf("expected unified kernel_version in cowrie.cfg, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(trapsRoot, "dep-1", "honeyfs", "var", "www", "app", "server.js")); err != nil {
+		t.Fatalf("expected /var/www/app/server.js lure file: %v", err)
+	}
 
 	hc, _ := lastCreate["HostConfig"].(map[string]any)
 	if hc["ReadonlyRootfs"] != true || hc["Privileged"] != false || hc["NetworkMode"] != "trap_isolated_net" {
