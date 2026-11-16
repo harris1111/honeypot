@@ -10,11 +10,15 @@ import (
 )
 
 type stubTransport struct {
-	called bool
+	called    bool
+	lastPath  string
+	lastQuery string
 }
 
 func (s *stubTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	s.called = true
+	s.lastPath = r.URL.Path
+	s.lastQuery = r.URL.RawQuery
 	return &http.Response{
 		StatusCode: http.StatusCreated,
 		Body:       io.NopCloser(strings.NewReader(`{"Id":"abc"}`)),
@@ -45,6 +49,9 @@ func TestDockerGuardProxyRejectsEscapesAndAllowsHardenedTrap(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusCreated || !stub.called {
 		t.Fatalf("expected 201 on valid trap, got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if stub.lastPath != "/v1.45/containers/create" || stub.lastQuery != "name=hp-trap-cowrie-1" {
+		t.Fatalf("unexpected proxied path/query: path=%q query=%q", stub.lastPath, stub.lastQuery)
 	}
 
 	// Hostile cases must all be rejected with 403 and NEVER reach upstream

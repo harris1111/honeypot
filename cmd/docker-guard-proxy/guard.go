@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -84,12 +85,11 @@ func NewGuardHandler(upstream http.RoundTripper, cfg PolicyConfig) http.Handler 
 	if !strings.HasSuffix(cleanRoot, string(filepath.Separator)) {
 		cleanRoot += string(filepath.Separator)
 	}
+	dockerTarget := &url.URL{Scheme: "http", Host: "docker"}
 	rp := &httputil.ReverseProxy{
 		Transport: upstream,
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(pr.In.URL)
-			pr.Out.URL.Scheme = "http"
-			pr.Out.URL.Host = "docker"
+			pr.SetURL(dockerTarget)
 		},
 	}
 

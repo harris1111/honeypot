@@ -316,7 +316,22 @@ func (p *Postgres) UpdateNodeHeartbeat(ctx context.Context, nodeID string, hb *h
 			metrics_json = $3::jsonb
 		WHERE id = $1::uuid
 	`, nodeID, hb.GetAgentVersion(), string(metrics))
-	return err
+	if err != nil {
+		return err
+	}
+	for _, t := range hb.GetTraps() {
+		depID := strings.TrimSpace(t.GetDeploymentId())
+		act := strings.TrimSpace(t.GetActualState())
+		if depID == "" || act == "" {
+			continue
+		}
+		_, _ = p.Pool.Exec(ctx, `
+			UPDATE trap_deployments
+			SET actual_state = $3, updated_at = NOW()
+			WHERE id = $1::uuid AND node_id = $2::uuid
+		`, depID, nodeID, act)
+	}
+	return nil
 }
 
 // ListAllowlistCIDRs returns all protected allowlist CIDRs.
