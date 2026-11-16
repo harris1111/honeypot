@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -198,17 +199,19 @@ func (h *HiveRelay) HandleRelayStream(req *honeypotv1.RelayLLMRequest, stream ho
 	}
 
 	costUSD := float64(tokIn+tokOut) / 1000.0 * upCfg.PricePer1KUSD
+	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
 	if h.breaker != nil {
-		h.breaker.ReconcileActualCost(ctx, time.Now().UTC().Format("2006-01-02"), costUSD)
+		h.breaker.ReconcileActualCost(postCtx, time.Now().UTC().Format("2006-01-02"), costUSD)
 	}
 	if h.cache != nil && fullResp != "" {
-		h.cache.Set(ctx, req.GetApiDialect(), persona.EmulatedModel, req.GetMessagesJson(), budget.CachedResponse{
+		h.cache.Set(postCtx, req.GetApiDialect(), persona.EmulatedModel, req.GetMessagesJson(), budget.CachedResponse{
 			Text:      fullResp,
 			TokensIn:  tokIn,
 			TokensOut: tokOut,
 		})
 	}
-	h.saveConversation(ctx, req, canaryRec.ID, persona.EmulatedModel, fullResp, "none", tokIn, tokOut, costUSD)
+	h.saveConversation(postCtx, req, canaryRec.ID, persona.EmulatedModel, fullResp, "none", tokIn, tokOut, costUSD)
 	return nil
 }
 
@@ -405,7 +408,9 @@ func (h *HiveRelay) saveConversation(ctx context.Context, req *honeypotv1.RelayL
 	if h.pg == nil || req.GetEventUuid() == "" || req.GetNodeId() == "" {
 		return
 	}
-	_ = h.pg.InsertLLMConversation(ctx, req.GetNodeId(), &honeypotv1.LlmConversation{
+	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := h.pg.InsertLLMConversation(dbCtx, req.GetNodeId(), &honeypotv1.LlmConversation{
 		ConversationUuid:  req.GetEventUuid(),
 		EventUuid:         req.GetEventUuid(),
 		NodeId:            req.GetNodeId(),
@@ -422,7 +427,9 @@ func (h *HiveRelay) saveConversation(ctx context.Context, req *honeypotv1.RelayL
 		UpstreamTokensIn:  tokIn,
 		UpstreamTokensOut: tokOut,
 		EstimatedCostUsd:  cost,
-	})
+	}); err != nil {
+		log.Printf("saveConversation insert error node=%s event=%s: %v", req.GetNodeId(), req.GetEventUuid(), err)
+	}
 }
 
 func buildZeroCostDeceptionReply(persona chameleon.ResolvedPersona, messagesJSON string) string {
